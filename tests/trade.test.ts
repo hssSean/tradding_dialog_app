@@ -4,6 +4,7 @@ import {
   autoFlags,
   normalizeSymbol,
   plannedRR,
+  recentSymbols,
   rMultiple,
   tagLabel,
   tradePnl,
@@ -128,4 +129,9 @@ describe('標籤與格式', () => {
   test('已知鍵', () => expect(tagLabel('revenge')).toBe('報復單'))
   test('自訂鍵原樣', () => expect(tagLabel('自訂X')).toBe('自訂X'))
   test('幣種正規化', () => expect(normalizeSymbol(' btcusdt ')).toBe('BTCUSDT'))
+  test('最近幣種：新到舊、去重、限量', () => {
+    const t = (symbol: string, opened_at: string) => ({ symbol, opened_at })
+    const list = [t('A', '2026-10-01T00:00:00Z'), t('B', '2026-10-03T00:00:00Z'), t('A', '2026-10-02T00:00:00Z'), t('C', '2026-09-01T00:00:00Z')]
+    expect(recentSymbols(list, 2)).toEqual(['B', 'A'])
+  })
 })

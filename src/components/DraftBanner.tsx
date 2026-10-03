@@ -1,0 +1,15 @@
+export default function DraftBanner({ onRestore, onDiscard }: { onRestore: () => void; onDiscard: () => void }) {
+  return (
+    <div className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-sky-900 bg-sky-950/50 p-3 text-sm">
+      <span className="text-sky-200">有上次沒送出的草稿</span>
+      <div className="flex gap-2">
+        <button type="button" className="min-h-10 rounded-md px-3 text-zinc-400" onClick={onDiscard}>
+          捨棄
+        </button>
+        <button type="button" className="min-h-10 rounded-md bg-sky-700 px-3 text-white" onClick={onRestore}>
+          還原
+        </button>
+      </div>
+    </div>
+  )
+}

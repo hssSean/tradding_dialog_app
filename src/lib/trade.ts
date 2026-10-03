@@ -106,3 +106,9 @@ export function tagLabel(key: string): string {
 export function normalizeSymbol(s: string): string {
   return s.trim().toUpperCase()
 }
+
+/** 最近用過的幣種（依進場時間由新到舊、去重） */
+export function recentSymbols(trades: Pick<Trade, 'symbol' | 'opened_at'>[], limit = 10): string[] {
+  const sorted = [...trades].sort((a, b) => Date.parse(b.opened_at) - Date.parse(a.opened_at))
+  return [...new Set(sorted.map((t) => t.symbol))].slice(0, limit)
+}
