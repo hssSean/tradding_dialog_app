@@ -65,7 +65,9 @@ export async function signOut(): Promise<void> {
 export async function getSettings(): Promise<Settings> {
   const existing = maybe(await supabase.from('settings').select('*').maybeSingle<Settings>())
   if (existing) return existing
-  return must(await supabase.from('settings').insert({}).select('*').single<Settings>())
+  // 第一次登入時可能有兩個請求同時走到這裡（StrictMode、多個頁面同時載入），用 do nothing 避免撞主鍵
+  check(await supabase.from('settings').upsert({}, { onConflict: 'user_id', ignoreDuplicates: true }))
+  return must(await supabase.from('settings').select('*').single<Settings>())
 }
 
 export async function updateSettings(standardRisk: number): Promise<void> {
