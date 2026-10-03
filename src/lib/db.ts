@@ -11,7 +11,7 @@ const supabase = createClient(url || 'http://localhost', anonKey || 'missing', {
   auth: { persistSession: true, autoRefreshToken: true },
 })
 
-const BUCKET = 'screenshots'
+const BUCKET = 'journal-screenshots'
 const SIGNED_URL_TTL = 3600
 
 type Res<T> = { data: T | null; error: { message: string } | null }
@@ -63,63 +63,63 @@ export async function signOut(): Promise<void> {
 // ── 設定與 setup ────────────────────────────────────────
 
 export async function getSettings(): Promise<Settings> {
-  const existing = maybe(await supabase.from('settings').select('*').maybeSingle<Settings>())
+  const existing = maybe(await supabase.from('journal_settings').select('*').maybeSingle<Settings>())
   if (existing) return existing
   // 第一次登入時可能有兩個請求同時走到這裡（StrictMode、多個頁面同時載入），用 do nothing 避免撞主鍵
-  check(await supabase.from('settings').upsert({}, { onConflict: 'user_id', ignoreDuplicates: true }))
-  return must(await supabase.from('settings').select('*').single<Settings>())
+  check(await supabase.from('journal_settings').upsert({}, { onConflict: 'user_id', ignoreDuplicates: true }))
+  return must(await supabase.from('journal_settings').select('*').single<Settings>())
 }
 
 export async function updateSettings(standardRisk: number): Promise<void> {
-  check(await supabase.from('settings').update({ standard_risk_usdt: standardRisk }).eq('user_id', await userId()))
+  check(await supabase.from('journal_settings').update({ standard_risk_usdt: standardRisk }).eq('user_id', await userId()))
 }
 
 export async function listSetups(): Promise<Setup[]> {
-  return must(await supabase.from('setups').select('*').order('sort_order').order('name').returns<Setup[]>())
+  return must(await supabase.from('journal_setups').select('*').order('sort_order').order('name').returns<Setup[]>())
 }
 
 export async function createSetup(name: string, sortOrder: number): Promise<Setup> {
-  return must(await supabase.from('setups').insert({ name: name.trim(), sort_order: sortOrder }).select('*').single<Setup>())
+  return must(await supabase.from('journal_setups').insert({ name: name.trim(), sort_order: sortOrder }).select('*').single<Setup>())
 }
 
 export async function updateSetup(id: string, patch: Partial<Pick<Setup, 'name' | 'archived' | 'sort_order'>>): Promise<void> {
-  check(await supabase.from('setups').update(patch).eq('id', id))
+  check(await supabase.from('journal_setups').update(patch).eq('id', id))
 }
 
 // ── 交易 ────────────────────────────────────────────────
 
 export async function listTrades(): Promise<Trade[]> {
-  return must(await supabase.from('trades').select('*').order('opened_at', { ascending: false }).returns<Trade[]>())
+  return must(await supabase.from('journal_trades').select('*').order('opened_at', { ascending: false }).returns<Trade[]>())
 }
 
 export async function getTrade(id: string): Promise<Trade> {
-  return must(await supabase.from('trades').select('*').eq('id', id).single<Trade>())
+  return must(await supabase.from('journal_trades').select('*').eq('id', id).single<Trade>())
 }
 
 export async function createTrade(e: EntryInput): Promise<Trade> {
-  return must(await supabase.from('trades').insert({ ...e, symbol: normalizeSymbol(e.symbol) }).select('*').single<Trade>())
+  return must(await supabase.from('journal_trades').insert({ ...e, symbol: normalizeSymbol(e.symbol) }).select('*').single<Trade>())
 }
 
 export async function closeTrade(id: string, x: ExitInput): Promise<Trade> {
-  return must(await supabase.from('trades').update(x).eq('id', id).select('*').single<Trade>())
+  return must(await supabase.from('journal_trades').update(x).eq('id', id).select('*').single<Trade>())
 }
 
 export async function updateTrade(id: string, patch: Partial<EntryInput & ExitInput>): Promise<Trade> {
   const p = patch.symbol === undefined ? patch : { ...patch, symbol: normalizeSymbol(patch.symbol) }
-  return must(await supabase.from('trades').update(p).eq('id', id).select('*').single<Trade>())
+  return must(await supabase.from('journal_trades').update(p).eq('id', id).select('*').single<Trade>())
 }
 
 /** 先刪 Storage 檔案再刪交易列（trade_images 隨 cascade 刪除） */
 export async function deleteTrade(id: string): Promise<void> {
   const images = await listImages(id)
   if (images.length) check(await supabase.storage.from(BUCKET).remove(images.map((i) => i.path)))
-  check(await supabase.from('trades').delete().eq('id', id))
+  check(await supabase.from('journal_trades').delete().eq('id', id))
 }
 
 // ── 截圖 ────────────────────────────────────────────────
 
 export async function listImages(tradeId: string): Promise<TradeImage[]> {
-  return must(await supabase.from('trade_images').select('*').eq('trade_id', tradeId).returns<TradeImage[]>())
+  return must(await supabase.from('journal_trade_images').select('*').eq('trade_id', tradeId).returns<TradeImage[]>())
 }
 
 /** 每次上傳用新檔名，避免簽名網址拿到 CDN 快取的舊圖；舊檔在新檔寫入後刪除 */
@@ -130,7 +130,7 @@ export async function uploadImage(tradeId: string, kind: ImageKind, blob: Blob):
   check(await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg' }))
   check(
     await supabase
-      .from('trade_images')
+      .from('journal_trade_images')
       .upsert({ trade_id: tradeId, kind, path, size_bytes: blob.size }, { onConflict: 'trade_id,kind' }),
   )
   if (old) await supabase.storage.from(BUCKET).remove([old.path])
@@ -141,20 +141,20 @@ export async function imageUrl(path: string): Promise<string> {
 }
 
 export async function storageUsageBytes(): Promise<number> {
-  const rows = must(await supabase.from('trade_images').select('size_bytes').returns<{ size_bytes: number }[]>())
+  const rows = must(await supabase.from('journal_trade_images').select('size_bytes').returns<{ size_bytes: number }[]>())
   return rows.reduce((s, r) => s + r.size_bytes, 0)
 }
 
 // ── 每週檢討 ────────────────────────────────────────────
 
 export async function getWeeklyReview(weekStart: string): Promise<WeeklyReview | null> {
-  return maybe(await supabase.from('weekly_reviews').select('*').eq('week_start', weekStart).maybeSingle<WeeklyReview>())
+  return maybe(await supabase.from('journal_weekly_reviews').select('*').eq('week_start', weekStart).maybeSingle<WeeklyReview>())
 }
 
 export async function saveWeeklyReview(weekStart: string, note: string, nextWeekFocus: string): Promise<void> {
   check(
     await supabase
-      .from('weekly_reviews')
+      .from('journal_weekly_reviews')
       .upsert({ week_start: weekStart, note, next_week_focus: nextWeekFocus }, { onConflict: 'user_id,week_start' }),
   )
 }

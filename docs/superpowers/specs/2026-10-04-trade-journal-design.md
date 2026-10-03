@@ -24,7 +24,7 @@
 ## 3. 技術架構
 
 - 前端：Vite + React + TypeScript + Tailwind + React Router + `vite-plugin-pwa`
-- 後端：**新建**一個 Supabase 專案（Postgres + Auth + Storage），不跟 `tradding_app` 共用
+- 後端：**與 `tradding_app` 共用**同一個 Supabase 專案與登入帳號（2026-10-05 變更，原本是新建專案）。本專案所有資料表、函數、policy、bucket 一律加 `journal_` 前綴，避免與 tradding_app 的 `trades` 等表衝突。下文的表名省略前綴，實際名稱見 `supabase/schema.sql`
 - 部署：Vercel 免費方案，純靜態網站，沒有伺服器端程式
 - 權限：所有資料表與 Storage 都靠 RLS，只能存取 `auth.uid()` 自己的資料
 - 時區：固定 `Asia/Taipei`，寫成常數，不開設定
@@ -115,7 +115,7 @@ create table weekly_reviews (
 ```
 
 - 每張表都開 RLS，`select/insert/update/delete` 的條件一律是 `user_id = auth.uid()`。
-- Storage bucket `screenshots` 設為**私有**，路徑格式 `{user_id}/{trade_id}/{kind}.jpg`。policy 限制路徑第一段等於 `auth.uid()`。顯示圖片時用 1 小時效期的簽名網址。
+- Storage bucket `journal-screenshots` 設為**私有**，路徑格式 `{user_id}/{trade_id}/{kind}.jpg`。policy 限制路徑第一段等於 `auth.uid()`。顯示圖片時用 1 小時效期的簽名網址。
 - 第一次登入時，若沒有 `settings` 列就自動建立一列預設值。
 - 刪除交易時，先刪 Storage 檔案，再刪 `trades` 列（`trade_images` 會跟著 cascade 刪除）。
 
@@ -219,6 +219,6 @@ create table weekly_reviews (
 
 ## 11. 部署
 
-- 在 Supabase 建新專案，執行 `supabase/schema.sql`（資料表、RLS、Storage bucket 與 policy）。
+- 在 tradding_app 的 Supabase 專案執行 `supabase/schema.sql`（資料表、RLS、Storage bucket 與 policy）。
 - 環境變數 `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 設在 Vercel；anon key 本來就是公開的，安全性由 RLS 保證。
-- 關閉 Supabase Auth 的公開註冊：使用者自己的帳號建好之後，在 Supabase 後台關掉 signups。
+- **不關閉**公開註冊：tradding_app 需要註冊功能。其他註冊者受 RLS 限制，只看得到自己的資料。

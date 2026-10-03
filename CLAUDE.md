@@ -17,7 +17,8 @@
 手動交易紀錄 PWA（交易日誌）：使用者在 iPhone 上記錄自己的**手動**交易，每週檢討「問題出在哪」（紀律、setup、時段／幣種／方向）。
 
 - **技術棧**：Vite + React 19 + TypeScript + Tailwind 4 + `vite-plugin-pwa`，純前端，部署 Vercel
-- **資料**：Supabase（Postgres + Auth email/密碼 + Storage 私有 bucket `screenshots`），全部靠 RLS 保護，沒有自己的後端
+- **資料**：Supabase（Postgres + Auth email/密碼 + Storage 私有 bucket `journal-screenshots`），全部靠 RLS 保護，沒有自己的後端
+- **🔴 與 `tradding_app` 共用同一個 Supabase 專案與帳號**：本專案所有 DB 物件（表、函數、trigger、policy、bucket）一律 `journal_` 前綴。**絕不可**建立、修改、刪除 tradding_app 的 `trades`、`profiles`、`watchlist`、`push_subscriptions`，也不要用 `create or replace` 蓋到沒有前綴的函數。不可關閉公開註冊（tradding_app 需要）。
 - **資料來源**：全部手動輸入，不接交易所 API
 - **設計規格**：`docs/superpowers/specs/2026-10-04-trade-journal-design.md`（改行為前先讀）
 - **部署步驟**：`README.md`
