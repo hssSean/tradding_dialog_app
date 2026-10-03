@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  background: #09090b;
+  color: #f4f4f5;
+  overscroll-behavior-y: none;
+}
+
+input,
+select,
+textarea {
+  font-size: 16px; /* iOS 小於 16px 會在聚焦時自動放大 */
+}
