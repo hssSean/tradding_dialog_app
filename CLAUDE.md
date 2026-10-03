@@ -14,11 +14,21 @@
 
 ## 專案概觀
 
-> TODO：專案剛建立，尚無程式碼。確定技術棧與目的後補上。
+手動交易紀錄 PWA（交易日誌）：使用者在 iPhone 上記錄自己的**手動**交易，每週檢討「問題出在哪」（紀律、setup、時段／幣種／方向）。
 
-- **目的**：（待補）
-- **技術棧**：（待補）
-- **資料來源**：（待補；可用 MCP：`binance-futures`、`crypto`）
+- **技術棧**：Vite + React 19 + TypeScript + Tailwind 4 + `vite-plugin-pwa`，純前端，部署 Vercel
+- **資料**：Supabase（Postgres + Auth email/密碼 + Storage 私有 bucket `screenshots`），全部靠 RLS 保護，沒有自己的後端
+- **資料來源**：全部手動輸入，不接交易所 API
+- **設計規格**：`docs/superpowers/specs/2026-10-04-trade-journal-design.md`（改行為前先讀）
+- **部署步驟**：`README.md`
+
+### ⚠️ 容易踩的坑
+
+- **時區固定台北**（`src/lib/tz.ts`），不依賴裝置時區。週次以 `closed_at` 歸週、週一 00:00 起算。
+- **截圖只能輸出 JPEG**：iOS Safari canvas 不支援 WebP，會悄悄變 PNG。
+- **不要用 magic link 登入**：iPhone 主畫面 PWA 與 Safari 儲存空間分開。
+- **畫面元件不直接 import `supabase-js`**，一律經 `src/lib/db.ts`。
+- 新增資料表或欄位：同步改 `supabase/schema.sql`，並提醒使用者到 Supabase SQL Editor 執行 `ALTER TABLE`。
 
 ### 相關專案
 
@@ -32,12 +42,24 @@
 ## 常用指令
 
 ```bash
-# TODO：建立專案後補上（開發、型別檢查、測試、build）
+npm run dev          # 本機開發（需 .env.local，見 .env.example）
+npm test             # vitest（純函數）
+npm run typecheck    # tsc -b
+npm run build        # production build（含 PWA service worker）
+npx oxlint           # lint
 ```
 
 ## 關鍵檔案
 
-> TODO
+| 檔案 | 職責 |
+|---|---|
+| `src/lib/trade.ts` | 單筆：R、計畫 R:R、損益估算、輸入驗證、自動紀律警示（純函數） |
+| `src/lib/stats.ts` | 週次、分組、報復單判斷、本週最大問題歸因（純函數） |
+| `src/lib/forms.ts` | 字串表單 ↔ 資料型別轉換與驗證 |
+| `src/lib/db.ts` | 唯一的 Supabase 存取點 |
+| `src/lib/image.ts` | 截圖壓縮（最長邊 2000px、JPEG 0.8） |
+| `supabase/schema.sql` | 資料表、RLS、Storage policy |
+| `src/pages/WeeklyReview.tsx` | 每週檢討頁 |
 
 ## 專案慣例
 
