@@ -48,7 +48,12 @@ npm test             # vitest（純函數）
 npm run typecheck    # tsc -b
 npm run build        # production build（含 PWA service worker）
 npx oxlint           # lint
+node scripts/sb-query.mjs -e "select ..."   # 對 Supabase 執行 SQL（需 .env.local 的 SUPABASE_ACCESS_TOKEN）
+node scripts/sb-query.mjs migration.sql     # 執行 SQL 檔
 ```
+
+部署：push 到 `main` 由 Vercel（專案 `tradding-dialog-app`，https://tradding-dialog-app.vercel.app）自動部署。
+資料庫：`supabase/schema.sql` 已於 2026-10-05 套用。之後改 schema 要另寫 migration 並用 `sb-query.mjs` 執行，同時更新 `schema.sql`。
 
 ## 關鍵檔案
 
