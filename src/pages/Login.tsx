@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Button, Errors, Field, inputClass } from '../components/ui'
-import { signIn } from '../lib/db'
+import { buildInfo, signIn } from '../lib/db'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -43,6 +43,7 @@ export default function Login() {
           {busy ? '登入中…' : '登入'}
         </Button>
       </form>
+      <p className="mt-10 text-center text-xs text-zinc-600">{buildInfo}</p>
     </main>
   )
 }

@@ -7,6 +7,9 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const configured = Boolean(url && anonKey)
 
+/** 版本資訊：部署版本 + 金鑰末四碼（publishable key 本來就公開），用來確認手機載入的是哪一版 */
+export const buildInfo = `${__BUILD_ID__} · key …${anonKey ? anonKey.slice(-4) : '無'}`
+
 const supabase = createClient(url || 'http://localhost', anonKey || 'missing', {
   auth: { persistSession: true, autoRefreshToken: true },
 })

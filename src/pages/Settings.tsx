@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Card, Errors, Field, LoadError, Loading, PageHeader, inputClass } from '../components/ui'
-import { createSetup, signOut, storageUsageBytes, updateSettings, updateSetup } from '../lib/db'
+import { buildInfo, createSetup, signOut, storageUsageBytes, updateSettings, updateSetup } from '../lib/db'
 import { parseNum } from '../lib/format'
 import type { Setup } from '../lib/types'
 import { useAsync } from '../lib/useAsync'
@@ -145,6 +145,7 @@ function SettingsForm({ journal, reload }: { journal: Journal; reload: () => voi
         <Button variant="secondary" className="w-full" onClick={() => void signOut()}>
           登出
         </Button>
+        <p className="text-center text-xs text-zinc-600">{buildInfo}</p>
       </div>
     </>
   )
