@@ -1,6 +1,6 @@
 import { fromLocalInput, parseNum, toLocalInput } from './format'
-import { normalizeSymbol, validateEntry, validateExit } from './trade'
-import type { Direction, EntryInput, ExitInput, ExitReason, Trade } from './types'
+import { currentStop, normalizeSymbol, validateEntry, validateExit } from './trade'
+import type { Direction, Emotion, EntryInput, ExitInput, ExitReason, Trade } from './types'
 
 /** 表單狀態一律用字串，送出時才轉型（iOS 數字鍵盤輸入過程中常是不完整的字串） */
 export interface EntryForm {
@@ -8,12 +8,15 @@ export interface EntryForm {
   direction: Direction
   setup_id: string
   timeframe: string
-  opened_at: string // datetime-local（台北）
+  /** datetime-local（台北）；作戰卡（尚未進場）為空字串 */
+  opened_at: string
   entry_price: string
   planned_stop: string
   planned_target: string
   risk_usdt: string
   entry_reason: string
+  /** 當下情緒 1–5；空字串 = 未填 */
+  emotion: string
 }
 
 export interface ExitForm {
@@ -31,7 +34,8 @@ const optional = (s: string) => parseNum(s)
 const text = (s: string) => (s.trim() ? s.trim() : null)
 const str = (n: number | null) => (n === null ? '' : String(n))
 
-export function emptyEntryForm(standardRisk: number, nowLocal: string): EntryForm {
+/** 作戰卡不填進場時間（nowLocal 傳空字串），補記交易才填 */
+export function emptyEntryForm(defaultRisk: number | null, nowLocal: string): EntryForm {
   return {
     symbol: '',
     direction: 'long',
@@ -41,8 +45,9 @@ export function emptyEntryForm(standardRisk: number, nowLocal: string): EntryFor
     entry_price: '',
     planned_stop: '',
     planned_target: '',
-    risk_usdt: String(standardRisk),
+    risk_usdt: defaultRisk === null ? '' : String(defaultRisk),
     entry_reason: '',
+    emotion: '',
   }
 }
 
@@ -52,12 +57,13 @@ export function entryToForm(t: Trade): EntryForm {
     direction: t.direction,
     setup_id: t.setup_id ?? '',
     timeframe: t.timeframe ?? '',
-    opened_at: toLocalInput(t.opened_at),
+    opened_at: t.opened_at ? toLocalInput(t.opened_at) : '',
     entry_price: str(t.entry_price),
     planned_stop: str(t.planned_stop),
     planned_target: str(t.planned_target),
     risk_usdt: str(t.risk_usdt),
     entry_reason: t.entry_reason ?? '',
+    emotion: t.emotion === null ? '' : String(t.emotion),
   }
 }
 
@@ -67,12 +73,13 @@ export function parseEntry(f: EntryForm): { value: EntryInput; errors: string[] 
     direction: f.direction,
     setup_id: f.setup_id || null,
     timeframe: text(f.timeframe),
-    opened_at: f.opened_at ? fromLocalInput(f.opened_at) : '',
+    opened_at: f.opened_at ? fromLocalInput(f.opened_at) : null,
     entry_price: required(f.entry_price),
     planned_stop: required(f.planned_stop),
     planned_target: optional(f.planned_target),
     risk_usdt: required(f.risk_usdt),
     entry_reason: text(f.entry_reason),
+    emotion: f.emotion ? (Number(f.emotion) as Emotion) : null,
   }
   return { value, errors: validateEntry(value) }
 }
@@ -81,7 +88,7 @@ export function emptyExitForm(t: Trade, nowLocal: string): ExitForm {
   return {
     closed_at: nowLocal,
     exit_price: '',
-    final_stop: str(t.planned_stop),
+    final_stop: str(currentStop(t)),
     exit_reason: '',
     pnl_usdt: '',
     mistake_tags: [],
@@ -93,7 +100,7 @@ export function exitToForm(t: Trade): ExitForm {
   return {
     closed_at: t.closed_at ? toLocalInput(t.closed_at) : '',
     exit_price: str(t.exit_price),
-    final_stop: str(t.final_stop ?? t.planned_stop),
+    final_stop: str(currentStop(t)),
     exit_reason: t.exit_reason ?? '',
     pnl_usdt: str(t.pnl_usdt),
     mistake_tags: t.mistake_tags,

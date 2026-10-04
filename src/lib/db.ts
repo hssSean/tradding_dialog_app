@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
-import { normalizeSymbol } from './trade'
-import type { EntryInput, ExitInput, ImageKind, Settings, Setup, Trade, TradeImage, WeeklyReview } from './types'
+import { currentStop, normalizeSymbol } from './trade'
+import type { DailyNote, EntryInput, ExitInput, ImageKind, Settings, Setup, Trade, TradeImage, WeeklyReview } from './types'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -73,8 +73,8 @@ export async function getSettings(): Promise<Settings> {
   return must(await supabase.from('journal_settings').select('*').single<Settings>())
 }
 
-export async function updateSettings(standardRisk: number): Promise<void> {
-  check(await supabase.from('journal_settings').update({ standard_risk_usdt: standardRisk }).eq('user_id', await userId()))
+export async function updateSettings(patch: Partial<Pick<Settings, 'starting_equity' | 'display_title'>>): Promise<void> {
+  check(await supabase.from('journal_settings').update(patch).eq('user_id', await userId()))
 }
 
 export async function listSetups(): Promise<Setup[]> {
@@ -89,22 +89,111 @@ export async function updateSetup(id: string, patch: Partial<Pick<Setup, 'name' 
   check(await supabase.from('journal_setups').update(patch).eq('id', id))
 }
 
+/** 圖鑑卡的每月檢查：保留或淘汰（淘汰＝封存） */
+export async function reviewSetup(id: string, keep: boolean): Promise<void> {
+  check(await supabase.from('journal_setups').update({ reviewed_at: nowIso(), archived: !keep }).eq('id', id))
+}
+
 // ── 交易 ────────────────────────────────────────────────
 
 export async function listTrades(): Promise<Trade[]> {
-  return must(await supabase.from('journal_trades').select('*').order('opened_at', { ascending: false }).returns<Trade[]>())
+  return must(await supabase.from('journal_trades').select('*').order('created_at', { ascending: false }).returns<Trade[]>())
 }
 
 export async function getTrade(id: string): Promise<Trade> {
   return must(await supabase.from('journal_trades').select('*').eq('id', id).single<Trade>())
 }
 
-export async function createTrade(e: EntryInput): Promise<Trade> {
-  return must(await supabase.from('journal_trades').insert({ ...e, symbol: normalizeSymbol(e.symbol) }).select('*').single<Trade>())
+const nowIso = () => new Date().toISOString()
+
+/**
+ * 立作戰卡（e.opened_at 為 null）或補記交易（e.opened_at 有值、沒有作戰卡）。
+ * equity 是存檔當下的帳戶權益，用來算風險 %。
+ */
+export async function createTrade(e: EntryInput, equity: number | null): Promise<Trade> {
+  const row = {
+    ...e,
+    symbol: normalizeSymbol(e.symbol),
+    card_at: e.opened_at === null ? nowIso() : null,
+    equity_at_entry: equity,
+    gamified: true,
+  }
+  return must(await supabase.from('journal_trades').insert(row).select('*').single<Trade>())
 }
 
-export async function closeTrade(id: string, x: ExitInput): Promise<Trade> {
-  return must(await supabase.from('journal_trades').update(x).eq('id', id).select('*').single<Trade>())
+/**
+ * 作戰卡 → 已進場。成交價和計畫不同時，風險金額按止損距離等比調整（數量不變）。
+ */
+export async function markEntered(t: Trade, openedAt: string, fillPrice: number): Promise<Trade> {
+  const planDist = Math.abs(t.entry_price - t.planned_stop)
+  const fillDist = Math.abs(fillPrice - t.planned_stop)
+  const risk = planDist > 0 ? Math.round(((t.risk_usdt * fillDist) / planDist) * 100) / 100 : t.risk_usdt
+  return must(
+    await supabase
+      .from('journal_trades')
+      .update({ opened_at: openedAt, entry_price: fillPrice, risk_usdt: risk })
+      .eq('id', t.id)
+      .select('*')
+      .single<Trade>(),
+  )
+}
+
+export async function abandonCard(id: string): Promise<void> {
+  check(await supabase.from('journal_trades').update({ abandoned_at: nowIso() }).eq('id', id))
+}
+
+/** 進場後才補作戰卡：card_at 晚於 opened_at，只拿一半經驗值，評分仍視為沒有作戰卡 */
+export async function fillCardLate(id: string, patch: { entry_reason: string | null; emotion: Trade['emotion'] }): Promise<Trade> {
+  return must(
+    await supabase
+      .from('journal_trades')
+      .update({ ...patch, card_at: nowIso() })
+      .eq('id', id)
+      .select('*')
+      .single<Trade>(),
+  )
+}
+
+/** 持倉中移動止損：每次都記下時間與前後價位，用來判斷是否逆向移動 */
+export async function moveStop(t: Trade, to: number): Promise<Trade> {
+  const edits = [...t.stop_edits, { at: nowIso(), from: currentStop(t), to }]
+  return must(
+    await supabase
+      .from('journal_trades')
+      .update({ stop_edits: edits, final_stop: to })
+      .eq('id', t.id)
+      .select('*')
+      .single<Trade>(),
+  )
+}
+
+/** 平倉。最後止損和目前止損不同時也記一筆移動；有寫復盤就記下復盤時間 */
+export async function closeTrade(t: Trade, x: ExitInput): Promise<Trade> {
+  const from = currentStop(t)
+  const stop_edits = x.final_stop !== from ? [...t.stop_edits, { at: x.closed_at, from, to: x.final_stop }] : t.stop_edits
+  const reviewed_at = t.reviewed_at ?? (x.note ? nowIso() : null)
+  return must(
+    await supabase
+      .from('journal_trades')
+      .update({ ...x, stop_edits, reviewed_at })
+      .eq('id', t.id)
+      .select('*')
+      .single<Trade>(),
+  )
+}
+
+/** 寫或改復盤；第一次寫的時間才算復盤時間 */
+export async function saveReview(t: Trade, note: string): Promise<Trade> {
+  const text = note.trim() || null
+  const reviewed_at = t.reviewed_at ?? (text ? nowIso() : null)
+  return must(
+    await supabase
+      .from('journal_trades')
+      .update({ note: text, reviewed_at })
+      .eq('id', t.id)
+      .select('*')
+      .single<Trade>(),
+  )
 }
 
 export async function updateTrade(id: string, patch: Partial<EntryInput & ExitInput>): Promise<Trade> {
@@ -120,6 +209,23 @@ export async function deleteTrade(id: string): Promise<void> {
 }
 
 // ── 截圖 ────────────────────────────────────────────────
+
+/** 所有截圖的標註資訊（不含檔案），給遊戲化引擎算功課與經驗值 */
+export async function listImageMeta(): Promise<Pick<TradeImage, 'trade_id' | 'kind' | 'caption' | 'captioned_at'>[]> {
+  return must(
+    await supabase
+      .from('journal_trade_images')
+      .select('trade_id, kind, caption, captioned_at')
+      .returns<Pick<TradeImage, 'trade_id' | 'kind' | 'caption' | 'captioned_at'>[]>(),
+  )
+}
+
+/** 截圖標註；有文字才算標註，記下第一次標註的時間 */
+export async function saveCaption(img: TradeImage, caption: string): Promise<void> {
+  const text = caption.trim() || null
+  const captioned_at = text ? (img.captioned_at ?? nowIso()) : null
+  check(await supabase.from('journal_trade_images').update({ caption: text, captioned_at }).eq('id', img.id))
+}
 
 export async function listImages(tradeId: string): Promise<TradeImage[]> {
   return must(await supabase.from('journal_trade_images').select('*').eq('trade_id', tradeId).returns<TradeImage[]>())
@@ -146,6 +252,16 @@ export async function imageUrl(path: string): Promise<string> {
 export async function storageUsageBytes(): Promise<number> {
   const rows = must(await supabase.from('journal_trade_images').select('size_bytes').returns<{ size_bytes: number }[]>())
   return rows.reduce((s, r) => s + r.size_bytes, 0)
+}
+
+// ── 每日筆記 ────────────────────────────────────────────
+
+export async function listNotes(): Promise<DailyNote[]> {
+  return must(await supabase.from('journal_daily_notes').select('*').order('date', { ascending: false }).returns<DailyNote[]>())
+}
+
+export async function saveNote(date: string, patch: Partial<Pick<DailyNote, 'market_view' | 'weekly_mistake'>>): Promise<void> {
+  check(await supabase.from('journal_daily_notes').upsert({ date, ...patch }, { onConflict: 'user_id,date' }))
 }
 
 // ── 每週檢討 ────────────────────────────────────────────

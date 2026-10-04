@@ -1,4 +1,4 @@
-import { autoFlags, isClosed, rMultiple, tagLabel, tradePnl } from './trade'
+import { isClosed, rMultiple, tagLabel, tradePnl } from './trade'
 import type { ClosedTrade, Trade } from './types'
 import { DAY_MS, tpe, tpeMidnight, ymd } from './tz'
 
@@ -39,7 +39,6 @@ export interface Problem {
 }
 
 export const LOW_SAMPLE = 5
-const REVENGE_WINDOW_MS = 30 * 60_000
 const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六']
 const NO_SETUP = '__none'
 /** 本週最大問題的候選維度，順序即同分時的優先序 */
@@ -78,31 +77,14 @@ export function weekdayLabel(iso: string): string {
 
 // ── 逐筆加工 ────────────────────────────────────────────
 
-/** 虧損平倉後 0–30 分鐘內開的倉 */
-export function revengeIds(trades: Trade[]): Set<string> {
-  const losses = trades.filter(isClosed).filter((t) => rMultiple(t) < 0)
-  const ids = new Set<string>()
-  for (const t of trades) {
-    const opened = Date.parse(t.opened_at)
-    for (const l of losses) {
-      if (l.id === t.id) continue
-      const dt = opened - Date.parse(l.closed_at)
-      if (dt >= 0 && dt <= REVENGE_WINDOW_MS) {
-        ids.add(t.id)
-        break
-      }
-    }
-  }
-  return ids
-}
-
-/** 只回已平倉交易，附上 R、損益與紀律鍵（手動標籤 ∪ 自動警示） */
-export function enrich(trades: Trade[], standardRisk: number): Enriched[] {
-  const revenge = revengeIds(trades)
+/**
+ * 只回已平倉交易，附上 R、損益與紀律鍵（手動標籤 ∪ 遊戲化引擎判斷的違規）。
+ * 違規規則只有一份，在 src/game；這裡由呼叫端傳進來。
+ */
+export function enrich(trades: Trade[], violationsOf: (id: string) => string[] = () => []): Enriched[] {
   return trades.filter(isClosed).map((trade) => {
     const pnl = tradePnl(trade)
-    const keys = new Set([...trade.mistake_tags, ...autoFlags(trade, standardRisk)])
-    if (revenge.has(trade.id)) keys.add('revenge')
+    const keys = new Set([...trade.mistake_tags, ...violationsOf(trade.id)])
     return { trade, r: rMultiple(trade), pnl: pnl.value, pnlEstimated: pnl.estimated, keys: [...keys] }
   })
 }
