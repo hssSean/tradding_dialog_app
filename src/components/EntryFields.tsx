@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { EntryForm } from '../lib/forms'
 import type { Setup } from '../lib/types'
 import { Field, Segmented, inputClass } from './ui'
@@ -7,9 +8,13 @@ interface Props {
   onChange: (f: EntryForm) => void
   setups: Setup[]
   recentSymbols: string[]
+  /** 作戰卡還沒進場，不顯示進場時間 */
+  withOpenTime?: boolean
+  /** 風險金額欄下方的提示（風險 %、是否超過上限） */
+  riskHint?: ReactNode
 }
 
-export default function EntryFields({ value: f, onChange, setups, recentSymbols }: Props) {
+export default function EntryFields({ value: f, onChange, setups, recentSymbols, withOpenTime = true, riskHint }: Props) {
   const set = <K extends keyof EntryForm>(k: K, v: EntryForm[K]) => onChange({ ...f, [k]: v })
   const active = setups.filter((s) => !s.archived || s.id === f.setup_id)
 
@@ -37,8 +42,8 @@ export default function EntryFields({ value: f, onChange, setups, recentSymbols 
             value={f.direction}
             onChange={(v) => set('direction', v)}
             options={[
-              { value: 'long', label: '做多', className: 'bg-emerald-700 text-white' },
-              { value: 'short', label: '做空', className: 'bg-red-700 text-white' },
+              { value: 'long', label: '做多', className: 'bg-jade text-ink' },
+              { value: 'short', label: '做空', className: 'bg-ochre text-ink' },
             ]}
           />
         </Field>
@@ -60,12 +65,14 @@ export default function EntryFields({ value: f, onChange, setups, recentSymbols 
         </Field>
       </div>
 
-      <Field label="進場時間">
-        <input className={inputClass} type="datetime-local" value={f.opened_at} onChange={(e) => set('opened_at', e.target.value)} />
-      </Field>
+      {withOpenTime && (
+        <Field label="進場時間">
+          <input className={inputClass} type="datetime-local" value={f.opened_at} onChange={(e) => set('opened_at', e.target.value)} />
+        </Field>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
-        <Field label="進場價">
+        <Field label={withOpenTime ? '進場價' : '計畫進場價'}>
           <input className={inputClass} inputMode="decimal" value={f.entry_price} onChange={(e) => set('entry_price', e.target.value)} />
         </Field>
         <Field label="計畫止損">
@@ -81,9 +88,10 @@ export default function EntryFields({ value: f, onChange, setups, recentSymbols 
         </Field>
       </div>
 
-      <Field label="風險金額" hint="這筆最多虧幾 USDT">
+      <Field label="風險金額" hint="打到止損會虧幾 USDT">
         <input className={inputClass} inputMode="decimal" value={f.risk_usdt} onChange={(e) => set('risk_usdt', e.target.value)} />
       </Field>
+      {riskHint}
 
       <Field label="進場理由">
         <textarea className={`${inputClass} min-h-20`} value={f.entry_reason} onChange={(e) => set('entry_reason', e.target.value)} />

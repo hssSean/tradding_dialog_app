@@ -39,7 +39,7 @@ const DIMENSION_NAMES: Record<Dimension, string> = {
 
 function Delta({ label, value }: { label: string; value: number }) {
   return (
-    <span className="text-xs text-zinc-500">
+    <span className="text-xs text-paper-dim">
       {label} <span className={rColor(value)}>{fmtR(value)}</span>
     </span>
   )
@@ -54,9 +54,9 @@ export default function WeeklyReview() {
 
   if (journal.error) return <LoadError error={journal.error} onRetry={journal.reload} />
   if (!journal.data) return <Loading />
-  const { trades, settings, setupNames } = journal.data
+  const { trades, game, setupNames } = journal.data
 
-  const all = enrich(trades, settings.standard_risk_usdt)
+  const all = enrich(trades, (id) => game.timeline.byId.get(id)?.violations ?? [])
   const weekList = inScope(all, 'week', week)
   const summary = weekSummary(all, week)
   const problem = biggestProblem(weekList, setupNames)
@@ -67,15 +67,15 @@ export default function WeeklyReview() {
   return (
     <>
       <header className="mb-4 flex items-center justify-between">
-        <Link to={`/review/${addWeeks(week, -1)}`} className="flex min-h-11 min-w-11 items-center justify-center text-2xl text-sky-400" aria-label="上一週">
+        <Link to={`/review/${addWeeks(week, -1)}`} className="flex min-h-11 min-w-11 items-center justify-center text-2xl text-moon" aria-label="上一週">
           ‹
         </Link>
         <div className="text-center">
           <h1 className="text-xl font-bold">{weekTitle(week)}</h1>
-          {week === thisWeek && <p className="text-xs text-zinc-500">本週</p>}
+          {week === thisWeek && <p className="text-xs text-paper-dim">本週</p>}
         </div>
         {week < thisWeek ? (
-          <Link to={`/review/${addWeeks(week, 1)}`} className="flex min-h-11 min-w-11 items-center justify-center text-2xl text-sky-400" aria-label="下一週">
+          <Link to={`/review/${addWeeks(week, 1)}`} className="flex min-h-11 min-w-11 items-center justify-center text-2xl text-moon" aria-label="下一週">
             ›
           </Link>
         ) : (
@@ -86,7 +86,7 @@ export default function WeeklyReview() {
       <div className="space-y-4">
         <Card>
           {s.n === 0 ? (
-            <p className="text-center text-zinc-500">這週沒有平倉的交易</p>
+            <p className="text-center text-paper-dim">這週沒有平倉的交易</p>
           ) : (
             <>
               <div className="flex items-baseline justify-between">
@@ -95,15 +95,15 @@ export default function WeeklyReview() {
               </div>
               <div className="mt-2 grid grid-cols-3 text-sm">
                 <span>
-                  <span className="text-zinc-500">筆數 </span>
+                  <span className="text-paper-dim">筆數 </span>
                   {s.n}
                 </span>
                 <span>
-                  <span className="text-zinc-500">勝率 </span>
+                  <span className="text-paper-dim">勝率 </span>
                   {fmtPct(s.winRate)}
                 </span>
                 <span>
-                  <span className="text-zinc-500">平均 </span>
+                  <span className="text-paper-dim">平均 </span>
                   {fmtR(s.avgR)}
                 </span>
               </div>
@@ -115,19 +115,19 @@ export default function WeeklyReview() {
           </div>
         </Card>
 
-        <Card title="本週最大問題" className={problem ? 'border-red-900/70' : ''}>
+        <Card title="本週最大問題" className={problem ? 'border-ochre/70' : ''}>
           {problem ? (
             <>
               <p className="text-lg font-semibold">
-                <span className="mr-2 text-xs text-zinc-500">{DIMENSION_NAMES[problem.dimension]}</span>
+                <span className="mr-2 text-xs text-paper-dim">{DIMENSION_NAMES[problem.dimension]}</span>
                 {problem.label}
               </p>
-              <p className="mt-1 text-sm text-zinc-300">
-                {problem.n} 筆，共 <span className="text-red-400">{fmtR(problem.totalR)}</span>，佔本週虧損 {fmtPct(problem.share)}
+              <p className="mt-1 text-sm text-paper">
+                {problem.n} 筆，共 <span className="text-ochre">{fmtR(problem.totalR)}</span>，佔本週虧損 {fmtPct(problem.share)}
               </p>
             </>
           ) : (
-            <p className="text-zinc-500">本週沒有虧損來源</p>
+            <p className="text-paper-dim">本週沒有虧損來源</p>
           )}
         </Card>
 
@@ -135,16 +135,16 @@ export default function WeeklyReview() {
           <Card title="乾淨 vs 犯錯">
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <p className="text-zinc-500">乾淨單 {split.clean.n} 筆</p>
+                <p className="text-paper-dim">乾淨單 {split.clean.n} 筆</p>
                 <p className={`font-mono text-lg ${rColor(split.clean.totalR)}`}>{fmtR(split.clean.totalR)}</p>
               </div>
               <div>
-                <p className="text-zinc-500">犯錯單 {split.flagged.n} 筆</p>
+                <p className="text-paper-dim">犯錯單 {split.flagged.n} 筆</p>
                 <p className={`font-mono text-lg ${rColor(split.flagged.totalR)}`}>{fmtR(split.flagged.totalR)}</p>
               </div>
             </div>
             {split.flagged.n > 0 && (
-              <p className="mt-2 text-sm text-zinc-400">若沒有犯錯單，本週總 R 為 {fmtR(split.clean.totalR)}</p>
+              <p className="mt-2 text-sm text-paper-dim">若沒有犯錯單，本週總 R 為 {fmtR(split.clean.totalR)}</p>
             )}
           </Card>
         )}
@@ -159,7 +159,7 @@ export default function WeeklyReview() {
               { value: 'all', label: '全部' },
             ]}
           />
-          <p className="mt-2 text-xs text-zinc-600">共 {scoped.length} 筆。n &lt; 5 的組灰字，不要拿來下結論。</p>
+          <p className="mt-2 text-xs text-paper-dim/60">共 {scoped.length} 筆。n &lt; 5 的組灰字，不要拿來下結論。</p>
           <div className="mt-3 space-y-5">
             {DIMENSIONS.map(({ dim, title }) => (
               <StatsTable key={dim} title={title} rows={groupBy(scoped, dim, setupNames)} />
@@ -199,9 +199,9 @@ function ReviewNotes({ week }: { week: string }) {
   return (
     <Card title="本週心得">
       {prev.data?.next_week_focus && (
-        <div className="mb-3 rounded-lg bg-sky-950/40 p-3 text-sm">
-          <p className="mb-1 text-xs text-sky-400">上週說這週要改的事</p>
-          <p className="whitespace-pre-wrap text-zinc-200">{prev.data.next_week_focus}</p>
+        <div className="mb-3 rounded-lg bg-moon/40 p-3 text-sm">
+          <p className="mb-1 text-xs text-moon">上週說這週要改的事</p>
+          <p className="whitespace-pre-wrap text-paper">{prev.data.next_week_focus}</p>
         </div>
       )}
       {current.error ? (
@@ -218,7 +218,7 @@ function ReviewNotes({ week }: { week: string }) {
             onChange={(e) => setFocus(e.target.value)}
             onBlur={save}
           />
-          {status && <p className="text-xs text-zinc-500">{status}</p>}
+          {status && <p className="text-xs text-paper-dim">{status}</p>}
         </div>
       )}
     </Card>

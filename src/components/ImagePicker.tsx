@@ -40,19 +40,19 @@ export default function ImagePicker({
 
   return (
     <div>
-      <span className="mb-1 block text-sm text-zinc-400">{label}</span>
+      <span className="mb-1 block text-sm text-paper-dim">{label}</span>
       {preview ? (
         <div className="space-y-1">
-          <img src={preview} alt={label} className="max-h-64 w-full rounded-lg bg-black object-contain" />
-          <div className="flex items-center justify-between text-xs text-zinc-500">
+          <img src={preview} alt={label} className="max-h-64 w-full rounded-lg bg-ink object-contain" />
+          <div className="flex items-center justify-between text-xs text-paper-dim">
             <span>{Math.round((value?.size ?? 0) / 1024)} KB</span>
-            <button type="button" className="min-h-11 px-3 text-red-400" onClick={() => onChange(null)}>
+            <button type="button" className="min-h-11 px-3 text-ochre" onClick={() => onChange(null)}>
               移除
             </button>
           </div>
         </div>
       ) : (
-        <label className="flex min-h-20 cursor-pointer items-center justify-center rounded-lg border border-dashed border-zinc-700 text-sm text-zinc-500">
+        <label className="flex min-h-20 cursor-pointer items-center justify-center rounded-lg border border-dashed border-ink-line text-sm text-paper-dim">
           {busy ? '壓縮中…' : '＋ 選擇截圖'}
           <input
             type="file"
@@ -65,7 +65,7 @@ export default function ImagePicker({
           />
         </label>
       )}
-      {error && <p className="mt-1 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-sm text-ochre">{error}</p>}
     </div>
   )
 }

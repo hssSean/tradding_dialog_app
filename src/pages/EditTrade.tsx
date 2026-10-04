@@ -15,7 +15,7 @@ export default function EditTrade() {
   if (error) return <LoadError error={error} onRetry={reload} />
   if (!data) return <Loading />
   const trade = data.trades.find((t) => t.id === id)
-  if (!trade) return <p className="py-10 text-center text-zinc-500">找不到這筆交易</p>
+  if (!trade) return <p className="py-10 text-center text-paper-dim">找不到這筆交易</p>
   return <EditForm trade={trade} journal={data} />
 }
 
@@ -50,7 +50,7 @@ function EditForm({ trade, journal }: { trade: Trade; journal: Journal }) {
         <EntryFields value={entry} onChange={setEntry} setups={journal.setups} recentSymbols={recentSymbols(journal.trades)} />
         {closed && (
           <>
-            <hr className="border-zinc-800" />
+            <hr className="border-ink-line" />
             <ExitFields value={exit} onChange={setExit} />
           </>
         )}

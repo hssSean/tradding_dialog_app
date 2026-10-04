@@ -43,7 +43,7 @@ export default function Login() {
           {busy ? '登入中…' : '登入'}
         </Button>
       </form>
-      <p className="mt-10 text-center text-xs text-zinc-600">{buildInfo}</p>
+      <p className="mt-10 text-center text-xs text-paper-dim/60">{buildInfo}</p>
     </main>
   )
 }

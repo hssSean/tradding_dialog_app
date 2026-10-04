@@ -15,6 +15,7 @@
 ## 專案概觀
 
 手動交易紀錄 PWA（交易日誌）：使用者在 iPhone 上記錄自己的**手動**交易，每週檢討「問題出在哪」（紀律、setup、時段／幣種／方向）。
+v2（2026-10-04）加上夜墨山水首頁與遊戲化：作戰卡、評分評級、精神力、狀態異常、倉位階級、屬性、心魔、功課、圖鑑、成就、賽季。規格是 `trade-journal-handoff/SPEC.md`，決定與偏離記在 `docs/superpowers/plans/2026-10-04-v2-gamification.md`。
 
 - **技術棧**：Vite + React 19 + TypeScript + Tailwind 4 + `vite-plugin-pwa`，純前端，部署 Vercel
 - **資料**：Supabase（Postgres + Auth email/密碼 + Storage 私有 bucket `journal-screenshots`），全部靠 RLS 保護，沒有自己的後端
@@ -26,6 +27,11 @@
 ### ⚠️ 容易踩的坑
 
 - **時區固定台北**（`src/lib/tz.ts`），不依賴裝置時區。週次以 `closed_at` 歸週、週一 00:00 起算。
+- **紀律規則只有一份，在 `src/game`**。v1 的 `autoFlags`／30 分鐘報復單已移除，不要在別處重寫違規判斷。
+- **交易生命週期**：`opened_at IS NULL` 是作戰卡，`abandoned_at` 是放棄的卡，`gamified = false` 是 v2 之前的舊資料（不評分、不算違規，但照樣影響精神力與冷卻）。
+- **風險 % 不要先四捨五入再比門檻**：0.625% 會被進位成 0.63% 而跨過 1.25 倍上限（2026-10-04 測試抓到）。
+- **不用 `alert()`／`confirm()`／`prompt()`**（SPEC §8），二次確認一律做成頁面內區塊。
+- **盈虧不用紅綠**：賺 `jade`、賠 `ochre`，token 在 `src/index.css`；首頁 canvas 的顏色是寫死的十六進位值，改 token 要一起改 `Scene.tsx`。
 - **截圖只能輸出 JPEG**：iOS Safari canvas 不支援 WebP，會悄悄變 PNG。
 - **不要用 magic link 登入**：iPhone 主畫面 PWA 與 Safari 儲存空間分開。
 - **畫面元件不直接 import `supabase-js`**，一律經 `src/lib/db.ts`。
@@ -59,8 +65,12 @@ node scripts/sb-query.mjs migration.sql     # 執行 SQL 檔
 
 | 檔案 | 職責 |
 |---|---|
-| `src/lib/trade.ts` | 單筆：R、計畫 R:R、損益估算、輸入驗證、自動紀律警示（純函數） |
-| `src/lib/stats.ts` | 週次、分組、報復單判斷、本週最大問題歸因（純函數） |
+| `src/game/rules.ts` | 遊戲化所有數值與文字（SPEC §4），改數值只改這裡 |
+| `src/game/evaluate.ts` | 依時間重播每筆交易：違規、開倉當下精神力與階級、評分評級（純函數） |
+| `src/game/progress.ts` | 狀態異常、屬性、職業、功課、連續天數、心魔、成就、圖鑑、賽季、經驗值（純函數） |
+| `src/game/engine.ts` | `computeGameState`：UI 只讀這裡的輸出 |
+| `src/lib/trade.ts` | 單筆：R、風險 %、目前止損、逆向移動判斷、輸入驗證（純函數） |
+| `src/lib/stats.ts` | 每週檢討：週次、分組、本週最大問題歸因（紀律鍵由引擎傳入） |
 | `src/lib/forms.ts` | 字串表單 ↔ 資料型別轉換與驗證 |
 | `src/lib/db.ts` | 唯一的 Supabase 存取點 |
 | `src/lib/image.ts` | 截圖壓縮（最長邊 2000px、JPEG 0.8） |

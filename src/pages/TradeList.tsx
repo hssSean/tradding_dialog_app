@@ -1,80 +1,117 @@
 import { Link } from 'react-router-dom'
-import { LoadError, Loading, PageHeader, rColor } from '../components/ui'
-import { fmtDateTime, fmtR } from '../lib/format'
-import { enrich } from '../lib/stats'
-import { isClosed } from '../lib/trade'
+import { TradeRow } from '../components/game'
+import { LoadError, Loading } from '../components/ui'
+import { fmtDateTime } from '../lib/format'
+import { isOpen, isPendingCard } from '../lib/trade'
 import type { Trade } from '../lib/types'
 import { useJournal } from '../lib/useJournal'
 
-function DirBadge({ t }: { t: Trade }) {
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${t.direction === 'long' ? 'bg-emerald-900 text-emerald-300' : 'bg-red-900 text-red-300'}`}>
-      {t.direction === 'long' ? '多' : '空'}
-    </span>
-  )
+function Side({ t }: { t: Trade }) {
+  return <span className={`side ${t.direction === 'long' ? 'c-jade' : 'c-ochre'}`}>{t.direction === 'long' ? '多' : '空'}</span>
 }
 
+/** 日誌分頁：作戰卡、持倉、已平倉 */
 export default function TradeList() {
   const { data, error, loading, reload } = useJournal()
   if (loading && !data) return <Loading />
   if (error) return <LoadError error={error} onRetry={reload} />
   if (!data) return null
 
-  const open = data.trades.filter((t) => !isClosed(t))
-  const closed = enrich(data.trades, data.settings.standard_risk_usdt).sort(
-    (a, b) => Date.parse(b.trade.closed_at) - Date.parse(a.trade.closed_at),
-  )
+  const { trades, game, setupNames } = data
+  const cards = trades.filter(isPendingCard)
+  const open = trades.filter(isOpen).sort((a, b) => Date.parse(b.opened_at!) - Date.parse(a.opened_at!))
+  const closed = [...game.timeline.closes].reverse()
 
   return (
-    <>
-      <PageHeader title="交易" />
+    <div className="space-y-6">
+      <header className="flex items-baseline justify-between">
+        <h1 className="sec-title" style={{ fontSize: 28 }}>
+          日誌
+        </h1>
+        <div className="flex gap-4 text-sm">
+          <Link to="/review" className="text-moon">
+            每週檢討
+          </Link>
+          <Link to="/notes" className="text-moon">
+            每日筆記
+          </Link>
+        </div>
+      </header>
 
-      {open.length > 0 && (
-        <section className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold text-zinc-400">未平倉 {open.length}</h2>
-          <ul className="space-y-2">
-            {open.map((t) => (
-              <li key={t.id} className="flex items-center gap-3 rounded-xl border border-sky-900/60 bg-sky-950/30 p-3">
-                <Link to={`/trade/${t.id}`} className="flex flex-1 items-center gap-2">
-                  <DirBadge t={t} />
-                  <span className="font-medium">{t.symbol}</span>
-                  <span className="text-xs text-zinc-500">{fmtDateTime(t.opened_at)}</span>
-                </Link>
-                <Link to={`/trade/${t.id}/close`} className="flex min-h-11 items-center rounded-lg bg-sky-600 px-4 text-sm font-medium text-white">
-                  平倉
-                </Link>
-              </li>
+      <div className="grid grid-cols-[1fr_auto] gap-3">
+        <Link to="/card/new" className="slip" style={{ minHeight: 56 }}>
+          <span className="slip-title" style={{ fontSize: 20 }}>
+            立作戰卡
+          </span>
+          <span className="slip-xp">+20</span>
+        </Link>
+        <Link to="/trade/new" className="flex items-center rounded-sm border border-ink-line px-4 text-sm text-paper-dim">
+          補記交易
+        </Link>
+      </div>
+
+      {cards.length > 0 && (
+        <section>
+          <h2 className="mb-2 font-brush text-lg">作戰卡 · 待進場</h2>
+          <div className="trades">
+            {cards.map((t) => (
+              <Link key={t.id} to={`/trade/${t.id}`} className="trade">
+                <div className="trade-mid">
+                  <div className="trade-sym">
+                    {t.symbol}
+                    <Side t={t} />
+                  </div>
+                  <div className="trade-meta">
+                    <span>
+                      計畫 {t.entry_price}／止損 {t.planned_stop}
+                    </span>
+                    {t.card_at && <span>{fmtDateTime(t.card_at)}</span>}
+                  </div>
+                </div>
+                <span className="text-sm text-moon">已進場 →</span>
+              </Link>
             ))}
-          </ul>
+          </div>
         </section>
       )}
 
-      <h2 className="mb-2 text-sm font-semibold text-zinc-400">已平倉 {closed.length}</h2>
-      {closed.length === 0 ? (
-        <p className="py-10 text-center text-zinc-500">還沒有交易。按右下角 ＋ 記錄第一筆。</p>
-      ) : (
-        <ul className="divide-y divide-zinc-800 rounded-xl border border-zinc-800">
-          {closed.map((e) => (
-            <li key={e.trade.id}>
-              <Link to={`/trade/${e.trade.id}`} className="flex min-h-14 items-center gap-2 px-3">
-                <DirBadge t={e.trade} />
-                <span className="font-medium">{e.trade.symbol}</span>
-                {e.keys.length > 0 && <span className="text-xs text-amber-400">⚠ {e.keys.length}</span>}
-                <span className="ml-auto text-xs text-zinc-500">{fmtDateTime(e.trade.closed_at)}</span>
-                <span className={`w-20 text-right font-mono ${rColor(e.r)}`}>{fmtR(e.r)}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+      {open.length > 0 && (
+        <section>
+          <h2 className="mb-2 font-brush text-lg">持倉中</h2>
+          <div className="trades">
+            {open.map((t) => (
+              <div key={t.id} className="trade">
+                <Link to={`/trade/${t.id}`} className="trade-mid">
+                  <div className="trade-sym">
+                    {t.symbol}
+                    <Side t={t} />
+                  </div>
+                  <div className="trade-meta">
+                    <span>{fmtDateTime(t.opened_at!)}</span>
+                    {t.setup_id && <span>{setupNames.get(t.setup_id)}</span>}
+                  </div>
+                </Link>
+                <Link to={`/trade/${t.id}/close`} className="flex min-h-11 items-center rounded-sm bg-moon px-4 text-sm font-medium text-ink">
+                  平倉
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      <Link
-        to="/new"
-        aria-label="新增交易"
-        className="fixed right-5 bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] flex h-14 w-14 items-center justify-center rounded-full bg-sky-600 text-3xl text-white shadow-lg shadow-black/50"
-      >
-        ＋
-      </Link>
-    </>
+      <section>
+        <h2 className="mb-2 font-brush text-lg">已平倉 · {closed.length}</h2>
+        {closed.length === 0 ? (
+          <p className="py-6 text-center text-paper-dim">還沒有平倉的交易。</p>
+        ) : (
+          <div className="trades">
+            {closed.map((e, i) => (
+              <TradeRow key={e.trade.id} e={e} index={i} setupName={e.trade.setup_id ? setupNames.get(e.trade.setup_id) : undefined} />
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   )
 }

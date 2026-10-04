@@ -14,7 +14,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
 
   if (!configured)
     return (
-      <p className="p-6 text-center text-zinc-400">
+      <p className="p-6 text-center text-paper-dim">
         尚未設定 <code>VITE_SUPABASE_URL</code> 與 <code>VITE_SUPABASE_ANON_KEY</code>。
       </p>
     )
