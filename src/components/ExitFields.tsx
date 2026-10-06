@@ -49,7 +49,7 @@ export default function ExitFields({ value: f, onChange }: { value: ExitForm; on
         </div>
       </div>
 
-      <Field label="實際損益 USDT" hint="選填，含手續費">
+      <Field label="實際損益 USDT" hint="選填，含手續費；虧損填正數也會自動轉負">
         <input
           className={inputClass}
           inputMode="decimal"

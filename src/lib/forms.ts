@@ -108,17 +108,38 @@ export function exitToForm(t: Trade): ExitForm {
   }
 }
 
-export function parseExit(f: ExitForm, t: Pick<Trade, 'opened_at'>): { value: ExitInput; errors: string[] } {
+/**
+ * 實際損益的正負號以價格為準：價格已經是虧損時，手續費只會讓結果更差，不可能是正的，
+ * 所以填正數一定是把虧損金額填成絕對值（2026-10-06 ENAUSDT 實例），自動轉負。
+ * 價格小賺、實際小虧（被手續費吃掉）是可能的，保留原值。
+ */
+function signedPnl(
+  pnl: number | null,
+  t: Pick<Trade, 'direction' | 'entry_price'>,
+  exitPrice: number,
+): { pnl: number | null; fixed: boolean } {
+  if (pnl === null || !Number.isFinite(pnl) || !Number.isFinite(exitPrice)) return { pnl, fixed: false }
+  const priceMove = (exitPrice - t.entry_price) * (t.direction === 'long' ? 1 : -1)
+  if (priceMove < 0 && pnl > 0) return { pnl: -pnl, fixed: true }
+  return { pnl, fixed: false }
+}
+
+export function parseExit(
+  f: ExitForm,
+  t: Pick<Trade, 'opened_at' | 'direction' | 'entry_price'>,
+): { value: ExitInput; errors: string[]; pnlSignFixed: boolean } {
+  const exit_price = required(f.exit_price)
+  const { pnl, fixed } = signedPnl(optional(f.pnl_usdt), t, exit_price)
   const value: ExitInput = {
     closed_at: f.closed_at ? fromLocalInput(f.closed_at) : '',
-    exit_price: required(f.exit_price),
+    exit_price,
     final_stop: required(f.final_stop),
     exit_reason: f.exit_reason || 'other',
-    pnl_usdt: optional(f.pnl_usdt),
+    pnl_usdt: pnl,
     mistake_tags: f.mistake_tags,
     note: text(f.note),
   }
   const errors = validateExit(t, value)
   if (!f.exit_reason) errors.unshift('請選出場原因')
-  return { value, errors }
+  return { value, errors, pnlSignFixed: fixed }
 }

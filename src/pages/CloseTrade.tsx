@@ -5,9 +5,9 @@ import ExitFields from '../components/ExitFields'
 import ImagePicker from '../components/ImagePicker'
 import { Button, Card, Errors, LoadError, Loading, PageHeader, rColor } from '../components/ui'
 import { closeTrade, uploadImage } from '../lib/db'
-import { fmtR, toLocalInput } from '../lib/format'
+import { fmtR, fmtUsdt, toLocalInput } from '../lib/format'
 import { type ExitForm, emptyExitForm, parseExit } from '../lib/forms'
-import { currentStop, isAgainstMove, isClosed, isOpen, rMultiple } from '../lib/trade'
+import { currentStop, isAgainstMove, isClosed, isOpen, rMultiple, tradePnl } from '../lib/trade'
 import type { ClosedTrade, Trade } from '../lib/types'
 import { useDraftForm } from '../lib/useDraft'
 import { useJournal } from '../lib/useJournal'
@@ -61,7 +61,7 @@ function CloseForm({ trade }: { trade: Trade }) {
       <div className="space-y-4">
         <ExitFields value={draft.form} onChange={draft.setForm} />
         <ImagePicker label="出場截圖" value={image} onChange={setImage} />
-        {preview && <PreviewCard t={preview} from={currentStop(trade)} />}
+        {preview && <PreviewCard t={preview} from={currentStop(trade)} pnlSignFixed={parsed.pnlSignFixed} />}
         <Errors errors={errors} />
         <Button className="w-full" onClick={submit} disabled={busy}>
           {busy ? '儲存中…' : '儲存平倉'}
@@ -71,12 +71,17 @@ function CloseForm({ trade }: { trade: Trade }) {
   )
 }
 
-function PreviewCard({ t, from }: { t: ClosedTrade; from: number }) {
+function PreviewCard({ t, from, pnlSignFixed }: { t: ClosedTrade; from: number; pnlSignFixed: boolean }) {
   const r = rMultiple(t)
+  const pnl = tradePnl(t)
   const against = t.final_stop !== null && t.final_stop !== from && isAgainstMove(t.direction, from, t.final_stop)
   return (
     <Card title="預覽">
       <p className={`data text-2xl ${rColor(r)}`}>{fmtR(r)}</p>
+      <p className={`data text-sm ${rColor(pnl.value)}`}>
+        {fmtUsdt(pnl.value)} USDT{pnl.estimated && <span className="text-paper-dim">（以 R × 風險估算）</span>}
+      </p>
+      {pnlSignFixed && <p className="mt-1 text-sm text-ochre">這筆是虧損，實際損益已自動轉成負數。</p>}
       {against && <p className="mt-2 text-sm text-ochre">最後止損比目前止損更不利，會記為逆向移動止損。</p>}
       <p className="mt-2 text-sm text-paper-dim">{t.note ? '有寫復盤，存檔就算完成復盤 +20。' : '還沒寫復盤；24 小時內補寫也算。'}</p>
     </Card>
