@@ -55,7 +55,7 @@ export default function ExitFields({ value: f, onChange }: { value: ExitForm; on
           inputMode="decimal"
           value={f.pnl_usdt}
           onChange={(e) => set('pnl_usdt', e.target.value)}
-          placeholder="不填就用 R × 風險估算"
+          placeholder="選填"
         />
       </Field>
 

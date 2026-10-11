@@ -4,7 +4,7 @@ import Radar from '../components/home/Radar'
 import Scene, { fmtR1 } from '../components/home/Scene'
 import { LoadError, Loading } from '../components/ui'
 import { fmtR } from '../lib/format'
-import { CLASS_DESCRIPTIONS, DEBUFF_NAMES, DEX_REVEAL_N, TIERS } from '../game/rules'
+import { CLASS_DESCRIPTIONS, DEBUFF_NAMES, DEX_REVEAL_N } from '../game/rules'
 import { tpe } from '../lib/tz'
 import { useJournal } from '../lib/useJournal'
 
@@ -24,17 +24,13 @@ export default function Home() {
   if (error) return <div className="px-[18px] pt-[calc(env(safe-area-inset-top)+2rem)]"><LoadError error={error} onRetry={reload} /></div>
   if (!data) return <div className="pt-[calc(env(safe-area-inset-top)+2rem)]"><Loading /></div>
 
-  const { game, setupNames, settings } = data
-  const { profile, tier, daily, season } = game
+  const { game, setupNames } = data
+  const { profile, daily, season } = game
   const t = tpe(now)
   const eyebrow = `${String(t.getUTCMonth() + 1).padStart(2, '0')}.${String(t.getUTCDate()).padStart(2, '0')} ${WEEKDAYS[t.getUTCDay()]} · ${season.name} 第 ${season.dayIndex} 天`
   const sub = `Lv.${profile.level} · ${profile.className ? `${profile.className} · ${CLASS_DESCRIPTIONS[profile.className]}` : '職業未定（本季滿 10 筆）'}`
   const debuffs = game.debuffs.filter((d) => Date.parse(d.endsAt) > now.getTime())
 
-  // 倉位梯子：見習 0%、正式 50%、老手 100%
-  const ladderDone =
-    tier.level === 3 ? 100 : tier.level === 2 ? 50 + 50 * Math.min(1, tier.progress / 50) : 50 * Math.min(1, tier.progress / 30)
-  const prevTier = TIERS[Math.max(0, tier.level - 2)]
 
   const boss = game.boss
   const dex = [...game.setupDex].sort((a, b) => Number(b.revealed) - Number(a.revealed) || b.n - a.n)
@@ -51,17 +47,10 @@ export default function Home() {
         sub={sub}
         xp={profile.xp}
         xpToNext={profile.xpToNext}
-        maxDrawdownPct={season.maxDrawdownPct}
+        maxDrawdownR={season.maxDrawdownR}
       />
 
       <main className="page">
-        {settings.starting_equity === null && (
-          <section className="sec">
-            <Link to="/me" className="hint" style={{ color: 'var(--ochre)' }}>
-              還沒設定帳戶起始權益，風險 % 與倉位上限都算不出來。點這裡到「角色」設定 →
-            </Link>
-          </section>
-        )}
 
         {/* 狀態異常 */}
         <section className="sec" aria-label="狀態異常">
@@ -89,7 +78,7 @@ export default function Home() {
                       {fmtCountdown(Date.parse(d.endsAt) - now.getTime())}
                     </span>
                   </div>
-                  <p>{d.kind === 'cooldown' ? `上一筆虧損後 ${Math.floor((now.getTime() - (Date.parse(d.endsAt) - 15 * 60_000)) / 60_000)} 分鐘。冷卻期間開單會記為上頭：評分上限 B、倉位降一階。` : d.detail}</p>
+                  <p>{d.kind === 'cooldown' ? `上一筆虧損後 ${Math.floor((now.getTime() - (Date.parse(d.endsAt) - 15 * 60_000)) / 60_000)} 分鐘。冷卻期間開單會記為上頭：評分上限 B。` : d.detail}</p>
                 </div>
               </div>
             ))
@@ -104,64 +93,6 @@ export default function Home() {
           </button>
           <span className="sec-note">
             今日 <span className="data">{daily.tradeCount}</span> 筆 · <span className="data">{fmtR1(daily.totalR)}</span>
-          </span>
-        </section>
-
-        {/* 倉位階級 */}
-        <section className="sec" aria-labelledby="tier-h">
-          <div className="sec-head">
-            <h2 className="sec-title" id="tier-h">
-              倉位
-            </h2>
-            <span className="sec-note">用紀律換風險額度</span>
-          </div>
-          <div className="tier-top">
-            <div className="tier-name">
-              {tier.name}
-              <small>第{['一', '二', '三'][tier.level - 1]}階</small>
-            </div>
-            <div className="tier-cap">
-              {tier.capPct.toFixed(1)}%
-              <small>單筆風險上限</small>
-            </div>
-          </div>
-          <div className="ladder" aria-hidden="true">
-            <div className="ladder-line" />
-            <div className="ladder-done" style={{ width: `${ladderDone}%` }} />
-            {TIERS.map((def, i) => (
-              <div key={def.level} className={`rung${def.level === tier.level ? ' on' : def.level < tier.level ? ' past' : ''}`} style={{ left: `${i * 50}%` }}>
-                <i />
-                <span>
-                  {def.name}
-                  <b>{def.capPct.toFixed(1)}%</b>
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="conds">
-            {tier.progressTarget !== null ? (
-              <div className="cond">
-                <span>晉升{TIERS[tier.level].name}：A 以上交易</span>
-                <span className="data">
-                  {tier.progress} / {tier.progressTarget}
-                </span>
-              </div>
-            ) : (
-              <div className="cond">
-                <span>已是最高階</span>
-              </div>
-            )}
-            {tier.level >= 2 && (
-              <div className="cond">
-                <span>本季最大回撤低於 8%</span>
-                <span className={`data ${tier.ddOk ? 'ok' : 'c-ochre'}`}>
-                  {season.maxDrawdownPct === null ? '—' : `${season.maxDrawdownPct}%`} {tier.ddOk ? '達標' : '未達標'}
-                </span>
-              </div>
-            )}
-          </div>
-          <span className="warn-line">
-            觸發「上頭」會{tier.level > 1 ? `降回${prevTier.name}（${prevTier.capPct.toFixed(1)}%）` : '讓晉升進度歸零'}
           </span>
         </section>
 

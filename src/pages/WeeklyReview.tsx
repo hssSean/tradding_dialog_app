@@ -91,7 +91,7 @@ export default function WeeklyReview() {
             <>
               <div className="flex items-baseline justify-between">
                 <p className={`font-mono text-3xl ${rColor(s.totalR)}`}>{fmtR(s.totalR)}</p>
-                <p className={`font-mono ${rColor(s.pnl)}`}>{fmtUsdt(s.pnl)} USDT</p>
+                {s.pnl !== null && <p className={`font-mono ${rColor(s.pnl)}`}>{fmtUsdt(s.pnl)} USDT</p>}
               </div>
               <div className="mt-2 grid grid-cols-3 text-sm">
                 <span>

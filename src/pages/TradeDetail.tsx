@@ -4,7 +4,7 @@ import { EmotionPicker, GradeSeal, QuadrantTag, WarnIcon } from '../components/g
 import ImagePicker from '../components/ImagePicker'
 import { Button, Card, Errors, Field, LoadError, Loading, PageHeader, inputClass, rColor } from '../components/ui'
 import type { TradeEval } from '../game/evaluate'
-import { VIOLATION_LABELS, type ScoreItem } from '../game/rules'
+import { ITEM_MAX, VIOLATION_LABELS, type ScoreItem } from '../game/rules'
 import {
   abandonCard,
   deleteTrade,
@@ -18,7 +18,7 @@ import {
   uploadImage,
 } from '../lib/db'
 import { fmtDateTime, fmtR, fmtUsdt, fromLocalInput, parseNum, toLocalInput } from '../lib/format'
-import { EXIT_REASON_LABELS, currentStop, isAgainstMove, isClosed, isPendingCard, plannedRR, riskPct, tagLabel } from '../lib/trade'
+import { EXIT_REASON_LABELS, currentStop, isAgainstMove, isClosed, isPendingCard, plannedRR, tagLabel } from '../lib/trade'
 import type { ImageKind, Trade, TradeImage } from '../lib/types'
 import { useAsync } from '../lib/useAsync'
 import { useJournal } from '../lib/useJournal'
@@ -26,7 +26,6 @@ import { useJournal } from '../lib/useJournal'
 const ITEM_LABELS: Record<ScoreItem, string> = {
   card: '進場前有作戰卡',
   stop: '有初始止損',
-  risk: '風險在上限內',
   stopMove: '沒有逆向移動止損',
   review: '及時復盤',
 }
@@ -78,7 +77,6 @@ function Detail({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
   const rr = plannedRR(t)
-  const rp = riskPct(t)
   const pending = isPendingCard(t)
   const closed = isClosed(t)
 
@@ -141,9 +139,6 @@ function Detail({
           <Row label="初始止損">{t.planned_stop}</Row>
           {t.planned_target !== null && <Row label="目標">{t.planned_target}</Row>}
           {rr !== null && <Row label="計畫 R:R">{rr}</Row>}
-          <Row label="風險">
-            {t.risk_usdt} USDT{rp !== null && <span className="data">（{rp.toFixed(2)}%）</span>}
-          </Row>
           {t.emotion !== null && <Row label="情緒">{t.emotion}</Row>}
           {t.entry_reason && <p className="mt-2 text-sm whitespace-pre-wrap text-paper">{t.entry_reason}</p>}
           {t.stop_edits.length > 0 && (
@@ -208,7 +203,7 @@ function ResultCard({ e }: { e: TradeEval }) {
         <GradeSeal grade={e.grade} />
         <div className="flex-1">
           <p className={`data text-3xl ${rColor(r)}`}>{fmtR(r)}</p>
-          <p className="text-sm text-paper-dim">{e.pnl !== null && `${fmtUsdt(e.pnl)} USDT`}</p>
+          {e.trade.pnl_usdt !== null && <p className={`data text-sm ${rColor(e.trade.pnl_usdt)}`}>{fmtUsdt(e.trade.pnl_usdt)} USDT</p>}
         </div>
         {e.quadrant && <QuadrantTag quadrant={e.quadrant} />}
       </div>
@@ -226,8 +221,10 @@ function ResultCard({ e }: { e: TradeEval }) {
           </div>
           {(Object.keys(ITEM_LABELS) as ScoreItem[]).map((k) => (
             <div key={k} className="flex justify-between text-xs">
-              <span className={e.items![k] < 20 ? 'text-ochre' : 'text-paper-dim'}>{ITEM_LABELS[k]}</span>
-              <span className="data">{e.items![k]} / 20</span>
+              <span className={e.items![k] < ITEM_MAX ? 'text-ochre' : 'text-paper-dim'}>{ITEM_LABELS[k]}</span>
+              <span className="data">
+                {e.items![k]} / {ITEM_MAX}
+              </span>
             </div>
           ))}
           {e.violations.includes('tilt') && <p className="mt-1 text-xs text-ochre">冷卻期間開單：分數上限 74</p>}
@@ -286,7 +283,7 @@ function EnterCard({
   return (
     <Card title="已進場？">
       <div className="space-y-3">
-        {cooling && <p className="text-sm text-ochre">上頭冷卻中，現在進場會記為上頭違規（評分上限 B、倉位降一階）。</p>}
+        {cooling && <p className="text-sm text-ochre">上頭冷卻中，現在進場會記為上頭違規（評分上限 B）。</p>}
         <div className="grid grid-cols-2 gap-3">
           <Field label="成交價">
             <input className={inputClass} inputMode="decimal" value={price} onChange={(ev) => setPrice(ev.target.value)} />
@@ -354,7 +351,7 @@ function MoveStopCard({ t, onDone }: { t: Trade; onDone: () => void }) {
             記錄
           </Button>
         </div>
-        {against && <p className="text-sm text-ochre">這是往不利方向移，會記為逆向移動止損（評分 −20）。</p>}
+        {against && <p className="text-sm text-ochre">這是往不利方向移，會記為逆向移動止損（評分 −25）。</p>}
         <Errors errors={errors} />
       </div>
     </Card>

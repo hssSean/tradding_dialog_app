@@ -30,7 +30,6 @@ export function useJournal(deps: unknown[] = []) {
       images,
       notes,
       setups,
-      startingEquity: settings.starting_equity,
       displayTitle: settings.display_title,
       now: new Date(),
     })

@@ -4,17 +4,16 @@ import { mk } from './helpers'
 
 describe('parseEntry', () => {
   test('合法表單', () => {
-    const f = { ...emptyEntryForm(10, '2026-10-05T09:00'), symbol: ' btcusdt ', entry_price: '100', planned_stop: '95' }
+    const f = { ...emptyEntryForm('2026-10-05T09:00'), symbol: ' btcusdt ', entry_price: '100', planned_stop: '95' }
     const { value, errors } = parseEntry(f)
     expect(errors).toEqual([])
     expect(value.symbol).toBe('BTCUSDT')
     expect(value.planned_target).toBeNull()
     expect(value.setup_id).toBeNull()
     expect(value.opened_at).toBe('2026-10-05T01:00:00.000Z')
-    expect(value.risk_usdt).toBe(10)
   })
   test('必填數字空白要報錯', () => {
-    const f = { ...emptyEntryForm(10, '2026-10-05T09:00'), symbol: 'BTC', planned_stop: '95' }
+    const f = { ...emptyEntryForm('2026-10-05T09:00'), symbol: 'BTC', planned_stop: '95' }
     expect(parseEntry(f).errors).toContain('進場價要是大於 0 的數字')
   })
   test('往返', () => {

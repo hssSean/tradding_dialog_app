@@ -5,8 +5,8 @@ import { DAY_MS, tpe, tpeMidnight, ymd } from './tz'
 export interface Enriched {
   trade: ClosedTrade
   r: number
-  pnl: number
-  pnlEstimated: boolean
+  /** 使用者自己填的實際損益；沒填為 null */
+  pnl: number | null
   keys: string[]
 }
 
@@ -16,7 +16,8 @@ export interface GroupStats {
   winRate: number
   totalR: number
   avgR: number
-  pnl: number
+  /** 有填實際損益的那幾筆的合計；一筆都沒填為 null */
+  pnl: number | null
 }
 
 export type Dimension = 'discipline' | 'setup' | 'symbol' | 'direction' | 'hour' | 'weekday'
@@ -83,9 +84,8 @@ export function weekdayLabel(iso: string): string {
  */
 export function enrich(trades: Trade[], violationsOf: (id: string) => string[] = () => []): Enriched[] {
   return trades.filter(isClosed).map((trade) => {
-    const pnl = tradePnl(trade)
     const keys = new Set([...trade.mistake_tags, ...violationsOf(trade.id)])
-    return { trade, r: rMultiple(trade), pnl: pnl.value, pnlEstimated: pnl.estimated, keys: [...keys] }
+    return { trade, r: rMultiple(trade), pnl: tradePnl(trade), keys: [...keys] }
   })
 }
 
@@ -111,7 +111,7 @@ export function summarize(list: Enriched[]): GroupStats {
     winRate: n ? wins / n : 0,
     totalR,
     avgR: n ? round2(totalR / n) : 0,
-    pnl: round2(list.reduce((s, e) => s + e.pnl, 0)),
+    pnl: list.some((e) => e.pnl !== null) ? round2(list.reduce((s, e) => s + (e.pnl ?? 0), 0)) : null,
   }
 }
 

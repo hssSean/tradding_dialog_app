@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { computeGameState } from '../src/game/engine'
 import { smoothCumR } from '../src/game/equityLine'
-import { buildTimeline, dailyHp, downgrade, gradeOf, quadrantOf } from '../src/game/evaluate'
+import { buildTimeline, dailyHp, downgrade, gradeOf, maxDrawdownR, quadrantOf } from '../src/game/evaluate'
 import { activeDebuffs, attributesOf, bossOf, classOf, levelFromXp, setupDex } from '../src/game/progress'
 import { xpToNext } from '../src/game/rules'
 import { isAgainstMove, movedStopAgainst } from '../src/lib/trade'
@@ -9,7 +9,7 @@ import type { Trade } from '../src/lib/types'
 import { add, g } from './helpers'
 
 const NOW = new Date('2026-10-06T08:00:00Z') // 台北 10/06 16:00
-const T = (trades: Trade[], now = NOW, equity: number | null = 10000) => buildTimeline(trades, equity, now)
+const T = (trades: Trade[], now = NOW) => buildTimeline(trades, now)
 const evalOf = (trades: Trade[], id: string, now = NOW) => T(trades, now).byId.get(id)!
 
 describe('精神力 §4.4', () => {
@@ -32,18 +32,18 @@ describe('精神力 §4.4', () => {
 })
 
 describe('評分 §4.2', () => {
-  test('五項全滿 → 100、S', () => {
+  test('四項全滿 → 100、S', () => {
     const t = g()
     const e = evalOf([t], t.id)
     expect(e.score).toBe(100)
     expect(e.grade).toBe('S')
     expect(e.provisional).toBe(false)
   })
-  test('沒有作戰卡 → 80、A', () => {
+  test('沒有作戰卡 → 75、A', () => {
     const t = g({ card_at: null })
     const e = evalOf([t], t.id)
     expect(e.items!.card).toBe(0)
-    expect(e.score).toBe(80)
+    expect(e.score).toBe(75)
     expect(e.violations).toContain('no_card')
   })
   test('進場後才補卡：評分仍視為沒有作戰卡', () => {
@@ -53,19 +53,14 @@ describe('評分 §4.2', () => {
     expect(e.cardAfter).toBe(true)
     expect(e.items!.card).toBe(0)
   })
-  test('風險部分給分：≤ 上限 20、≤ 1.25 倍 10、超過 0', () => {
-    expect(evalOf([g({ id: 'a', risk_usdt: 50 })], 'a').items!.risk).toBe(20)
-    expect(evalOf([g({ id: 'b', risk_usdt: 62.5 })], 'b').items!.risk).toBe(10)
-    expect(evalOf([g({ id: 'c', risk_usdt: 63 })], 'c').items!.risk).toBe(0)
-  })
   test('逆向移動止損 → 該項 0 分', () => {
     const t = g({ stop_edits: [{ at: '2026-10-06T01:20:00Z', from: 95, to: 93 }] })
     expect(evalOf([t], t.id).items!.stopMove).toBe(0)
   })
-  test('復盤：24 小時內 20、72 小時內 10、超過 0', () => {
+  test('復盤：24 小時內 25、72 小時內 12.5、超過 0', () => {
     const closed = '2026-10-06T02:00:00Z'
-    expect(evalOf([g({ id: 'a', reviewed_at: add(closed, 24 * 60) })], 'a').items!.review).toBe(20)
-    expect(evalOf([g({ id: 'b', reviewed_at: add(closed, 48 * 60) })], 'b').items!.review).toBe(10)
+    expect(evalOf([g({ id: 'a', reviewed_at: add(closed, 24 * 60) })], 'a').items!.review).toBe(25)
+    expect(evalOf([g({ id: 'b', reviewed_at: add(closed, 48 * 60) })], 'b').items!.review).toBe(12.5)
     const late = new Date('2026-10-12T00:00:00Z')
     expect(evalOf([g({ id: 'c', reviewed_at: add(closed, 80 * 60) })], 'c', late).items!.review).toBe(0)
   })
@@ -73,7 +68,7 @@ describe('評分 §4.2', () => {
     const t = g({ reviewed_at: null })
     const e = evalOf([t], t.id)
     expect(e.provisional).toBe(true)
-    expect(e.score).toBe(80)
+    expect(e.score).toBe(75)
   })
   test('超過 72 小時還沒復盤：不再是暫定', () => {
     const t = g({ reviewed_at: null })
@@ -119,7 +114,7 @@ describe('四象限 §4.3', () => {
   test('74 分的獲利是運氣好的壞交易', () => expect(quadrantOf(1, 74)).toBe('lucky_bad'))
   test('違規虧損', () => expect(quadrantOf(-1, 50)).toBe('bad_loss'))
   test('運氣好的壞交易寫出扣分最多的一項', () => {
-    const t = g({ card_at: null, risk_usdt: 70, r: 2 }) // 沒卡 −20、超風險 −20
+    const t = g({ card_at: null, r: 2, stop_edits: [{ at: '2026-10-06T01:20:00Z', from: 95, to: 93 }] }) // 沒卡 −25、逆向移止損 −25
     const e = evalOf([t], t.id)
     expect(e.quadrant).toBe('lucky_bad')
     expect(e.mainViolation).toBe('沒有作戰卡就進場，這筆賺的不是你的優勢')
@@ -154,39 +149,6 @@ describe('逆向移動止損 §4.2', () => {
   })
 })
 
-describe('倉位階級 §4.6', () => {
-  /** n 筆 S 級交易，每筆間隔 2 小時 */
-  const goodRun = (n: number, start = '2026-10-01T00:00:00Z', risk = 50) =>
-    Array.from({ length: n }, (_, i) => g({ opened: add(start, i * 120), holdMin: 30, r: 1, risk_usdt: risk }))
-  const late = new Date('2026-10-30T00:00:00Z')
-
-  test('預設見習 0.5%', () => {
-    const tier = T([], late).tier
-    expect(tier).toMatchObject({ level: 1, name: '見習', capPct: 0.5, progress: 0, progressTarget: 30 })
-  })
-  test('29 筆 A 以上還是見習', () => expect(T(goodRun(29), late).tier.progress).toBe(29))
-  test('30 筆 A 以上晉升正式，計數歸零', () => {
-    expect(T(goodRun(30), late).tier).toMatchObject({ level: 2, capPct: 1, progress: 0, progressTarget: 50 })
-  })
-  test('上頭違規：降一階、計數歸零', () => {
-    const run = goodRun(32)
-    const last = run[run.length - 1]
-    const loss = g({ opened: add(last.closed_at!, 60), holdMin: 10, r: -1, risk_usdt: 50 })
-    const tilt = g({ opened: add(loss.closed_at!, 5), holdMin: 10, r: 1, risk_usdt: 50 })
-    expect(T([...run, loss, tilt], late).tier).toMatchObject({ level: 1, progress: 0 })
-  })
-  test('升老手需要回撤 < 8%', () => {
-    // 先升正式（30 筆），再 50 筆 A；中間一筆大虧讓本季回撤超過 8%
-    const first = goodRun(30, '2026-10-01T00:00:00Z')
-    const crash = g({ opened: '2026-10-04T12:00:00Z', holdMin: 10, r: -1, pnl_usdt: -2000 })
-    const second = goodRun(50, '2026-10-05T00:00:00Z', 100)
-    const tl = T([...first, crash, ...second], late)
-    expect(tl.tier.level).toBe(2)
-    expect(tl.tier.ddOk).toBe(false)
-    expect(T([...first, ...second], late).tier.level).toBe(3)
-  })
-})
-
 describe('經驗值與等級 §4.9', () => {
   test('Lv.12 升級需要 3,000', () => expect(xpToNext(12)).toBe(3000))
   test('累積經驗值換算等級', () => {
@@ -196,8 +158,8 @@ describe('經驗值與等級 §4.9', () => {
   })
   test('盈虧不影響經驗值', () => {
     const base = { opened: '2026-10-06T01:00:00Z' }
-    const win = computeGameState({ trades: [g({ ...base, r: 3 })], images: [], notes: [], setups: [], startingEquity: 10000, displayTitle: null, now: NOW })
-    const loss = computeGameState({ trades: [g({ ...base, r: -1 })], images: [], notes: [], setups: [], startingEquity: 10000, displayTitle: null, now: NOW })
+    const win = computeGameState({ trades: [g({ ...base, r: 3 })], images: [], notes: [], setups: [], displayTitle: null, now: NOW })
+    const loss = computeGameState({ trades: [g({ ...base, r: -1 })], images: [], notes: [], setups: [], displayTitle: null, now: NOW })
     expect(win.profile.totalXp).toBe(loss.profile.totalXp)
   })
 })
@@ -236,18 +198,6 @@ describe('狀態異常 §4.5', () => {
     const loss = g({ opened: '2026-10-06T07:00:00Z', holdMin: 30, r: -1 })
     const now = new Date(Date.parse(loss.closed_at!) + 15 * 60_000)
     expect(activeDebuffs(T([loss], now), now).find((x) => x.kind === 'cooldown')).toBeUndefined()
-  })
-  test('報復：虧損後下一筆風險 > 1.2 倍', () => {
-    const loss = g({ id: 'l', opened: '2026-10-06T00:00:00Z', holdMin: 30, r: -1, risk_usdt: 50 })
-    const big = g({ id: 'b', opened: '2026-10-06T02:00:00Z', risk_usdt: 61 })
-    const same = g({ id: 's', opened: '2026-10-06T02:00:00Z', risk_usdt: 60 })
-    expect(evalOf([loss, big], 'b').violations).toContain('revenge')
-    expect(evalOf([loss, same], 's').violations).not.toContain('revenge')
-  })
-  test('過度自信：連贏 3 筆後風險 > 前 3 筆平均 1.2 倍', () => {
-    const wins = [0, 1, 2].map((i) => g({ opened: add('2026-10-06T00:00:00Z', i * 40), holdMin: 20, r: 1, risk_usdt: 40 }))
-    const big = g({ id: 'b', opened: '2026-10-06T03:00:00Z', risk_usdt: 49 })
-    expect(evalOf([...wins, big], 'b').violations).toContain('overconfidence')
   })
   test('疲勞：台北 02:00–06:00 開單，或當天第 6 筆', () => {
     expect(evalOf([g({ id: 'n', opened: '2026-10-05T19:30:00Z' })], 'n').violations).toContain('fatigue') // 台北 03:30
@@ -288,6 +238,21 @@ describe('圖鑑 §4.12', () => {
     const trades = Array.from({ length: 20 }, (_, i) => g({ setup_id: 's1', opened: add('2026-10-01T00:00:00Z', i * 60), holdMin: 30, r: i < 5 ? 1 : -1 }))
     expect(setupDex(T(trades), [setup])[0]).toMatchObject({ revealed: true, cursed: true, ev: -0.5, winRate: 0.25 })
   })
+})
+
+describe('不碰金錢（2026-10-11）', () => {
+  test('風控＝守住止損：虧損超過 1.1R 不算', () => {
+    const trades = [
+      ...Array.from({ length: 4 }, (_, i) => g({ opened: add('2026-10-06T00:00:00Z', i * 70), holdMin: 30, r: -1 })),
+      g({ opened: '2026-10-06T06:00:00Z', holdMin: 30, r: -2.4 }),
+    ]
+    expect(attributesOf(T(trades).closes)!.values.find((v) => v.key === '風控')!.value).toBe(80)
+  })
+  test('沒有填風險金額也能評分', () => {
+    const t = g({ risk_usdt: null, equity_at_entry: null })
+    expect(evalOf([t], t.id).score).toBe(100)
+  })
+  test('本季最大回撤用累積 R', () => expect(maxDrawdownR([1, 2, -1, -2.5, 1])).toBe(3.5))
 })
 
 describe('前山 §3', () => {

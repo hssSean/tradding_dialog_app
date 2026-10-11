@@ -7,7 +7,7 @@ import ImagePicker from '../components/ImagePicker'
 import { Button, Errors, LoadError, Loading, PageHeader } from '../components/ui'
 import { DEBUFF_NAMES } from '../game/rules'
 import { createTrade, uploadImage } from '../lib/db'
-import { parseNum, toLocalInput } from '../lib/format'
+import { toLocalInput } from '../lib/format'
 import { type EntryForm, emptyEntryForm, parseEntry } from '../lib/forms'
 import { recentSymbols } from '../lib/trade'
 import { useDraftForm } from '../lib/useDraft'
@@ -23,28 +23,15 @@ export default function NewTrade({ mode }: { mode: Mode }) {
   const { data, error, reload } = useJournal()
   if (error) return <LoadError error={error} onRetry={reload} />
   if (!data) return <Loading />
-  if (data.game.equity === null)
-    return (
-      <>
-        <PageHeader title={mode === 'card' ? '立作戰卡' : '補記交易'} />
-        <p className="text-paper-dim">
-          要先設定帳戶起始權益，才算得出風險 % 與倉位上限。
-          <Link to="/me" className="ml-1 text-moon">
-            到「角色」設定 →
-          </Link>
-        </p>
-      </>
-    )
-  return <EntryPage journal={data} mode={mode} equity={data.game.equity} />
+  return <EntryPage journal={data} mode={mode} />
 }
 
-function EntryPage({ journal, mode, equity }: { journal: Journal; mode: Mode; equity: number }) {
+function EntryPage({ journal, mode }: { journal: Journal; mode: Mode }) {
   const navigate = useNavigate()
-  const { tier, daily, debuffs } = journal.game
-  const defaultRisk = Math.round(equity * tier.capPct) / 100
+  const { daily, debuffs } = journal.game
   const draft = useDraftForm<EntryForm>(
     mode === 'card' ? 'draft:card' : 'draft:new',
-    emptyEntryForm(defaultRisk, mode === 'card' ? '' : toLocalInput(new Date().toISOString())),
+    emptyEntryForm(mode === 'card' ? '' : toLocalInput(new Date().toISOString())),
   )
   const [image, setImage] = useState<Blob | null>(null)
   const [errors, setErrors] = useState<string[]>([])
@@ -52,9 +39,6 @@ function EntryPage({ journal, mode, equity }: { journal: Journal; mode: Mode; eq
   const [confirming, setConfirming] = useState(false)
 
   const f = draft.form
-  const risk = parseNum(f.risk_usdt)
-  const riskPct = risk !== null && risk > 0 ? (risk / equity) * 100 : null
-  const overCap = riskPct !== null && riskPct > tier.capPct + 1e-9
   const emotion = f.emotion ? Number(f.emotion) : null
 
   // 二次確認的理由（SPEC §4.1、§4.4）：情緒 ≥ 4、精神力低於 60
@@ -78,7 +62,7 @@ function EntryPage({ journal, mode, equity }: { journal: Journal; mode: Mode; eq
     }
     setBusy(true)
     try {
-      const trade = await createTrade(value, equity)
+      const trade = await createTrade(value)
       draft.clear()
       if (image) await uploadImage(trade.id, 'entry', image).catch(() => undefined)
       navigate(mode === 'card' ? `/trade/${trade.id}` : '/log', { replace: true })
@@ -102,7 +86,7 @@ function EntryPage({ journal, mode, equity }: { journal: Journal; mode: Mode; eq
 
       {mode === 'late' && (
         <p className="mb-4 rounded-md border border-ochre/40 p-3 text-sm text-ochre">
-          沒有作戰卡就進場會記為 FOMO，評分少 20 分。存檔後可以在詳情頁補卡（+10 經驗值）。
+          沒有作戰卡就進場會記為 FOMO，評分少 25 分。存檔後可以在詳情頁補卡（+10 經驗值）。
           <Link to="/card/new" className="ml-1 underline">
             還沒進場？改立作戰卡
           </Link>
@@ -110,7 +94,7 @@ function EntryPage({ journal, mode, equity }: { journal: Journal; mode: Mode; eq
       )}
       {mode === 'card' && cooldown && (
         <p className="mb-4 rounded-md border border-ochre/40 p-3 text-sm text-ochre">
-          {DEBUFF_NAMES.cooldown}冷卻中：冷卻結束前按「已進場」會記為上頭違規（評分上限 B、倉位降一階）。
+          {DEBUFF_NAMES.cooldown}冷卻中：冷卻結束前按「已進場」會記為上頭違規（評分上限 B）。
         </p>
       )}
 
@@ -121,13 +105,6 @@ function EntryPage({ journal, mode, equity }: { journal: Journal; mode: Mode; eq
           setups={journal.setups}
           recentSymbols={recentSymbols(journal.trades)}
           withOpenTime={mode === 'late'}
-          riskHint={
-            <p className={`-mt-2 text-sm ${overCap ? 'text-ochre' : 'text-paper-dim'}`}>
-              {riskPct === null ? '—' : <span className="data">{riskPct.toFixed(2)}%</span>} 的權益（
-              <span className="data">{equity.toLocaleString()}</span> USDT）· {tier.name}上限 {tier.capPct.toFixed(1)}%
-              {overCap && '，超過上限'}
-            </p>
-          }
         />
         <EmotionPicker value={f.emotion} onChange={(v) => setForm({ ...f, emotion: v })} />
         <ImagePicker label="進場截圖" value={image} onChange={setImage} />

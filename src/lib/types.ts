@@ -24,7 +24,8 @@ export interface Trade {
   entry_price: number
   planned_stop: number
   planned_target: number | null
-  risk_usdt: number
+  /** 2026-10-11 起不再填寫（金錢自己管），舊資料保留 */
+  risk_usdt: number | null
   entry_reason: string | null
   closed_at: string | null
   exit_price: number | null
@@ -59,7 +60,6 @@ export interface EntryInput {
   entry_price: number
   planned_stop: number
   planned_target: number | null
-  risk_usdt: number
   entry_reason: string | null
   emotion: Emotion | null
 }
@@ -85,9 +85,6 @@ export interface Setup {
 
 export interface Settings {
   user_id: string
-  /** v1 欄位，v2 起改用倉位階級上限 × 權益 */
-  standard_risk_usdt: number
-  starting_equity: number | null
   display_title: string | null
 }
 

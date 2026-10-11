@@ -39,7 +39,7 @@ create table journal_trades (
   entry_price numeric not null check (entry_price > 0),
   planned_stop numeric not null check (planned_stop > 0),
   planned_target numeric check (planned_target > 0),
-  risk_usdt numeric not null check (risk_usdt > 0),
+  risk_usdt numeric check (risk_usdt > 0),                -- 2026-10-11 起不再使用，舊資料保留
   entry_reason text,
   -- 出場（結果），未平倉時為 null
   closed_at timestamptz,

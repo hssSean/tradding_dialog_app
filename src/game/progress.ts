@@ -5,7 +5,7 @@
 import { weekStartOf } from '../lib/stats'
 import type { DailyNote, Setup, TradeImage } from '../lib/types'
 import { DAY_MS, tpe, tpeMidnight, ymd } from '../lib/tz'
-import { dayKey, maxDrawdownPct, monthBounds, monthKey, nextMidnight, prevMonth, type Timeline, type TradeEval } from './evaluate'
+import { dayKey, maxDrawdownR, monthBounds, monthKey, nextMidnight, prevMonth, type Timeline, type TradeEval } from './evaluate'
 import {
   ACHIEVEMENTS,
   ANNOTATE_TARGET,
@@ -21,7 +21,9 @@ import {
   DEBUFF_MS,
   DEX_REVEAL_N,
   MONTH_NAMES,
+  PHOENIX_DRAWDOWN_R,
   QUEST_XP,
+  STOP_HONORED_R,
   VIOLATIONS,
   XP_ACHIEVEMENT,
   XP_BY_GRADE,
@@ -58,12 +60,10 @@ export interface Debuff {
 }
 
 const DEBUFF_DETAILS: Record<Exclude<DebuffKind, 'cooldown'>, string> = {
-  revenge: '虧損後加大倉位。記入情緒控管。',
-  overconfidence: '連贏後加大倉位。記入情緒控管。',
   fomo: '沒有作戰卡就進場。記入耐心。',
   fatigue: '深夜開單，或今天已經開太多單。記入耐心。',
 }
-const DEBUFF_ORDER: DebuffKind[] = ['cooldown', 'revenge', 'overconfidence', 'fomo', 'fatigue']
+const DEBUFF_ORDER: DebuffKind[] = ['cooldown', 'fomo', 'fatigue']
 
 export function activeDebuffs(tl: Timeline, now: Date): Debuff[] {
   const nowMs = now.getTime()
@@ -78,15 +78,13 @@ export function activeDebuffs(tl: Timeline, now: Date): Debuff[] {
   if (lastLoss) {
     const closed = ms(lastLoss.trade.closed_at!)
     const mins = Math.floor((nowMs - closed) / 60_000)
-    put('cooldown', closed + COOLDOWN_MS, `上一筆虧損後 ${mins} 分鐘。冷卻期間開單會記為上頭：評分上限 B、倉位降一階。`)
+    put('cooldown', closed + COOLDOWN_MS, `上一筆虧損後 ${mins} 分鐘。冷卻期間開單會記為上頭：評分上限 B。`)
   }
 
   const midnight = nextMidnight(now)
   for (const e of tl.evals) {
     const opened = ms(e.trade.opened_at)
     if (opened > nowMs) continue
-    if (e.violations.includes('revenge')) put('revenge', opened + DEBUFF_MS, DEBUFF_DETAILS.revenge)
-    if (e.violations.includes('overconfidence')) put('overconfidence', opened + DEBUFF_MS, DEBUFF_DETAILS.overconfidence)
     if (e.violations.includes('no_card')) put('fomo', opened + DEBUFF_MS, DEBUFF_DETAILS.fomo)
     if (e.violations.includes('fatigue') && dayKey(e.trade.opened_at) === dayKey(now)) put('fatigue', midnight, DEBUFF_DETAILS.fatigue)
   }
@@ -108,11 +106,12 @@ export function attributesOf(closes: TradeEval[]): Attributes | null {
   const count = (f: (e: TradeEval) => boolean) => list.filter(f).length
   const has = (e: TradeEval, ...vs: Violation[]) => vs.some((v) => e.violations.includes(v))
   const values: { key: AttributeKey; value: number }[] = [
-    { key: '風控', value: pct(count((e) => e.trade.planned_stop !== null && e.riskPct !== null && e.riskPct <= e.capPct + 1e-9), n) },
+    // 風控＝守住止損：虧損沒有超過 1.1R（不碰金錢）
+    { key: '風控', value: pct(count((e) => e.trade.planned_stop !== null && e.r! >= STOP_HONORED_R), n) },
     { key: '復盤', value: pct(count((e) => e.reviewedIn24h), n) },
     { key: '執行力', value: pct(count((e) => e.cardBefore && !e.stopAgainst), n) },
     { key: '耐心', value: 100 - pct(count((e) => has(e, 'no_card', 'fatigue')), n) },
-    { key: '情緒控管', value: 100 - pct(count((e) => has(e, 'tilt', 'revenge', 'overconfidence')), n) },
+    { key: '情緒控管', value: 100 - pct(count((e) => has(e, 'tilt')), n) },
   ]
   const weakest = values.reduce((m, v) => (v.value < m.value ? v : m)).key
   return { values, weakest, advice: ATTRIBUTE_ADVICE[weakest] }
@@ -323,12 +322,7 @@ function longestRun<T>(xs: T[], pred: (x: T) => boolean): number {
   return best
 }
 
-export function achievementsOf(
-  tl: Timeline,
-  notes: DailyNote[],
-  startingEquity: number | null,
-  now: Date,
-): Set<AchievementId> {
+export function achievementsOf(tl: Timeline, notes: DailyNote[], now: Date): Set<AchievementId> {
   const got = new Set<AchievementId>()
   const gClosed = scored(tl.closes)
   const gOpened = tl.evals.filter((e) => e.trade.gamified)
@@ -365,22 +359,23 @@ export function achievementsOf(
     if (noTrades && days.every((x) => viewDates.has(x))) got.add('empty_hand')
   }
 
-  // 浴火重生：回撤超過 5% 後回到前高，期間沒有上頭違規
-  if (startingEquity !== null) {
-    let peak = startingEquity
-    let peakAt = 0
-    let armed = false
-    for (const p of tl.curve) {
-      if (armed && p.equity >= peak) {
-        const tilted = tl.evals.some((e) => e.violations.includes('tilt') && ms(e.trade.opened_at) > peakAt && ms(e.trade.opened_at) <= p.at)
-        if (!tilted) got.add('phoenix')
-        armed = false
-      }
-      if (p.equity >= peak) {
-        peak = p.equity
-        peakAt = p.at
-      } else if ((peak - p.equity) / peak > 0.05) armed = true
+  // 浴火重生：累積 R 從高點回落超過 5R 後回到前高，期間沒有上頭違規
+  let cum = 0
+  let peak = 0
+  let peakAt = 0
+  let armed = false
+  for (const e of tl.closes) {
+    cum += e.r!
+    const at = ms(e.trade.closed_at!)
+    if (armed && cum >= peak) {
+      const tilted = tl.evals.some((o) => o.violations.includes('tilt') && ms(o.trade.opened_at) > peakAt && ms(o.trade.opened_at) <= at)
+      if (!tilted) got.add('phoenix')
+      armed = false
     }
+    if (cum >= peak) {
+      peak = cum
+      peakAt = at
+    } else if (peak - cum > PHOENIX_DRAWDOWN_R) armed = true
   }
   return got
 }
@@ -434,12 +429,13 @@ export interface Season {
   /** 本季每筆平倉的 R（時間順序） */
   rs: number[]
   totalR: number
-  maxDrawdownPct: number | null
+  /** 本季累積 R 從高點的最大回落 */
+  maxDrawdownR: number
   disciplineScore: number | null
   tradeCount: number
 }
 
-export function seasonOf(tl: Timeline, startingEquity: number | null, month: string, now: Date): Season {
+export function seasonOf(tl: Timeline, month: string, now: Date): Season {
   const { start, end } = monthBounds(month)
   const closes = tl.closes.filter((e) => inMonth(e.trade.closed_at!, month))
   const rs = closes.map((e) => e.r!)
@@ -454,7 +450,7 @@ export function seasonOf(tl: Timeline, startingEquity: number | null, month: str
     daysLeft: days - dayIndex,
     rs,
     totalR: round2(rs.reduce((a, b) => a + b, 0)),
-    maxDrawdownPct: maxDrawdownPct(tl.curve, startingEquity, start, upTo),
+    maxDrawdownR: maxDrawdownR(rs),
     disciplineScore: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
     tradeCount: closes.length,
   }
@@ -471,7 +467,7 @@ export interface SeasonRecap {
 }
 
 /** 上一季的回顧卡；上一季沒有交易時為 null */
-export function lastSeasonRecap(tl: Timeline, startingEquity: number | null, now: Date): SeasonRecap | null {
+export function lastSeasonRecap(tl: Timeline, now: Date): SeasonRecap | null {
   const month = prevMonth(monthKey(now))
   const closes = tl.closes.filter((e) => inMonth(e.trade.closed_at!, month))
   if (!closes.length) return null
@@ -479,7 +475,7 @@ export function lastSeasonRecap(tl: Timeline, startingEquity: number | null, now
   const attrs = attributesOf(closes)
   const before = attributesOf(tl.closes.filter((e) => inMonth(e.trade.closed_at!, prevMonth(month))))
   return {
-    season: seasonOf(tl, startingEquity, month, now),
+    season: seasonOf(tl, month, now),
     best: sorted[sorted.length - 1],
     worst: sorted[0],
     boss: bossOf(tl, month),

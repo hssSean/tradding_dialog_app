@@ -47,12 +47,6 @@ export function isPendingCard(t: Trade): boolean {
   return t.opened_at === null && t.abandoned_at === null
 }
 
-/** 風險 % = 風險金額 ÷ 進場時權益；沒有權益資料時為 null。不四捨五入，避免門檻邊界被進位推過去 */
-export function riskPct(t: Pick<Trade, 'risk_usdt' | 'equity_at_entry'>): number | null {
-  if (t.equity_at_entry === null || t.equity_at_entry <= 0) return null
-  return (t.risk_usdt / t.equity_at_entry) * 100
-}
-
 /** 這次止損移動是不是往不利方向（做多往下、做空往上）；移到保本或有利方向不算 */
 export function isAgainstMove(direction: Direction, from: number, to: number): boolean {
   return (to - from) * sign(direction) < 0
@@ -88,9 +82,9 @@ export function plannedRR(
   return round2(((t.planned_target - t.entry_price) * sign(t.direction)) / riskDistance(t))
 }
 
-export function tradePnl(t: ClosedTrade): { value: number; estimated: boolean } {
-  if (t.pnl_usdt !== null) return { value: t.pnl_usdt, estimated: false }
-  return { value: round2(rMultiple(t) * t.risk_usdt), estimated: true }
+/** 實際損益只看使用者自己填的（金錢自己管，不再用風險金額估算）；沒填為 null */
+export function tradePnl(t: Pick<Trade, 'pnl_usdt'>): number | null {
+  return t.pnl_usdt
 }
 
 export function validateEntry(e: EntryInput): string[] {
@@ -98,7 +92,6 @@ export function validateEntry(e: EntryInput): string[] {
   if (!e.symbol.trim()) errors.push('請填幣種')
   if (!validNum(e.entry_price)) errors.push('進場價要是大於 0 的數字')
   if (!validNum(e.planned_stop)) errors.push('止損價要是大於 0 的數字')
-  if (!validNum(e.risk_usdt)) errors.push('風險金額要大於 0')
   if (e.planned_target !== null && !validNum(e.planned_target)) errors.push('目標價要是大於 0 的數字')
   if (e.opened_at !== null && Number.isNaN(Date.parse(e.opened_at))) errors.push('進場時間無效')
   if (e.emotion !== null && ![1, 2, 3, 4, 5].includes(e.emotion)) errors.push('情緒要是 1 到 5')

@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import type { EntryForm } from '../lib/forms'
 import type { Setup } from '../lib/types'
 import { Field, Segmented, inputClass } from './ui'
@@ -10,11 +9,9 @@ interface Props {
   recentSymbols: string[]
   /** 作戰卡還沒進場，不顯示進場時間 */
   withOpenTime?: boolean
-  /** 風險金額欄下方的提示（風險 %、是否超過上限） */
-  riskHint?: ReactNode
 }
 
-export default function EntryFields({ value: f, onChange, setups, recentSymbols, withOpenTime = true, riskHint }: Props) {
+export default function EntryFields({ value: f, onChange, setups, recentSymbols, withOpenTime = true }: Props) {
   const set = <K extends keyof EntryForm>(k: K, v: EntryForm[K]) => onChange({ ...f, [k]: v })
   const active = setups.filter((s) => !s.archived || s.id === f.setup_id)
 
@@ -88,10 +85,6 @@ export default function EntryFields({ value: f, onChange, setups, recentSymbols,
         </Field>
       </div>
 
-      <Field label="風險金額" hint="打到止損會虧幾 USDT">
-        <input className={inputClass} inputMode="decimal" value={f.risk_usdt} onChange={(e) => set('risk_usdt', e.target.value)} />
-      </Field>
-      {riskHint}
 
       <Field label="進場理由">
         <textarea className={`${inputClass} min-h-20`} value={f.entry_reason} onChange={(e) => set('entry_reason', e.target.value)} />

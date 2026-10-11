@@ -13,7 +13,6 @@ export interface EntryForm {
   entry_price: string
   planned_stop: string
   planned_target: string
-  risk_usdt: string
   entry_reason: string
   /** 當下情緒 1–5；空字串 = 未填 */
   emotion: string
@@ -35,7 +34,7 @@ const text = (s: string) => (s.trim() ? s.trim() : null)
 const str = (n: number | null) => (n === null ? '' : String(n))
 
 /** 作戰卡不填進場時間（nowLocal 傳空字串），補記交易才填 */
-export function emptyEntryForm(defaultRisk: number | null, nowLocal: string): EntryForm {
+export function emptyEntryForm(nowLocal: string): EntryForm {
   return {
     symbol: '',
     direction: 'long',
@@ -45,7 +44,6 @@ export function emptyEntryForm(defaultRisk: number | null, nowLocal: string): En
     entry_price: '',
     planned_stop: '',
     planned_target: '',
-    risk_usdt: defaultRisk === null ? '' : String(defaultRisk),
     entry_reason: '',
     emotion: '',
   }
@@ -61,7 +59,6 @@ export function entryToForm(t: Trade): EntryForm {
     entry_price: str(t.entry_price),
     planned_stop: str(t.planned_stop),
     planned_target: str(t.planned_target),
-    risk_usdt: str(t.risk_usdt),
     entry_reason: t.entry_reason ?? '',
     emotion: t.emotion === null ? '' : String(t.emotion),
   }
@@ -77,7 +74,6 @@ export function parseEntry(f: EntryForm): { value: EntryInput; errors: string[] 
     entry_price: required(f.entry_price),
     planned_stop: required(f.planned_stop),
     planned_target: optional(f.planned_target),
-    risk_usdt: required(f.risk_usdt),
     entry_reason: text(f.entry_reason),
     emotion: f.emotion ? (Number(f.emotion) as Emotion) : null,
   }

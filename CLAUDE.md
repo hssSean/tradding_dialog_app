@@ -29,7 +29,8 @@ v2（2026-10-04）加上夜墨山水首頁與遊戲化：作戰卡、評分評�
 - **時區固定台北**（`src/lib/tz.ts`），不依賴裝置時區。週次以 `closed_at` 歸週、週一 00:00 起算。
 - **紀律規則只有一份，在 `src/game`**。v1 的 `autoFlags`／30 分鐘報復單已移除，不要在別處重寫違規判斷。
 - **交易生命週期**：`opened_at IS NULL` 是作戰卡，`abandoned_at` 是放棄的卡，`gamified = false` 是 v2 之前的舊資料（不評分、不算違規，但照樣影響精神力與冷卻）。
-- **風險 % 不要先四捨五入再比門檻**：0.625% 會被進位成 0.63% 而跨過 1.25 倍上限（2026-10-04 測試抓到）。
+- **不碰金錢（2026-10-11 使用者決定）**：倉位與資金使用者自己管。沒有起始權益、風險金額、風險 %、倉位階級、超風險／報復／過度自信；損益只顯示使用者自己填的實際損益，不估算；回撤用累積 R。`risk_usdt`、`equity_at_entry`、`starting_equity` 欄位只是舊資料，不要再拿來算任何東西。
+- **實際損益的正負號以價格為準**：價格是虧損卻填正數，一律轉負（`forms.ts` 的 `signedPnl`，2026-10-06 ENAUSDT 實例）。
 - **不用 `alert()`／`confirm()`／`prompt()`**（SPEC §8），二次確認一律做成頁面內區塊。
 - **盈虧不用紅綠**：賺 `jade`、賠 `ochre`，token 在 `src/index.css`；首頁 canvas 的顏色是寫死的十六進位值，改 token 要一起改 `Scene.tsx`。
 - **截圖只能輸出 JPEG**：iOS Safari canvas 不支援 WebP，會悄悄變 PNG。
@@ -66,10 +67,10 @@ node scripts/sb-query.mjs migration.sql     # 執行 SQL 檔
 | 檔案 | 職責 |
 |---|---|
 | `src/game/rules.ts` | 遊戲化所有數值與文字（SPEC §4），改數值只改這裡 |
-| `src/game/evaluate.ts` | 依時間重播每筆交易：違規、開倉當下精神力與階級、評分評級（純函數） |
+| `src/game/evaluate.ts` | 依時間重播每筆交易：違規、開倉當下精神力、評分評級（純函數） |
 | `src/game/progress.ts` | 狀態異常、屬性、職業、功課、連續天數、心魔、成就、圖鑑、賽季、經驗值（純函數） |
 | `src/game/engine.ts` | `computeGameState`：UI 只讀這裡的輸出 |
-| `src/lib/trade.ts` | 單筆：R、風險 %、目前止損、逆向移動判斷、輸入驗證（純函數） |
+| `src/lib/trade.ts` | 單筆：R、目前止損、逆向移動判斷、輸入驗證（純函數） |
 | `src/lib/stats.ts` | 每週檢討：週次、分組、本週最大問題歸因（紀律鍵由引擎傳入） |
 | `src/lib/forms.ts` | 字串表單 ↔ 資料型別轉換與驗證 |
 | `src/lib/db.ts` | 唯一的 Supabase 存取點 |

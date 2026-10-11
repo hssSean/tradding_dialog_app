@@ -78,9 +78,7 @@ function PreviewCard({ t, from, pnlSignFixed }: { t: ClosedTrade; from: number; 
   return (
     <Card title="預覽">
       <p className={`data text-2xl ${rColor(r)}`}>{fmtR(r)}</p>
-      <p className={`data text-sm ${rColor(pnl.value)}`}>
-        {fmtUsdt(pnl.value)} USDT{pnl.estimated && <span className="text-paper-dim">（以 R × 風險估算）</span>}
-      </p>
+      {pnl !== null && <p className={`data text-sm ${rColor(pnl)}`}>{fmtUsdt(pnl)} USDT</p>}
       {pnlSignFixed && <p className="mt-1 text-sm text-ochre">這筆是虧損，實際損益已自動轉成負數。</p>}
       {against && <p className="mt-2 text-sm text-ochre">最後止損比目前止損更不利，會記為逆向移動止損。</p>}
       <p className="mt-2 text-sm text-paper-dim">{t.note ? '有寫復盤，存檔就算完成復盤 +20。' : '還沒寫復盤；24 小時內補寫也算。'}</p>

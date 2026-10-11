@@ -50,20 +50,21 @@ describe('enrich', () => {
   test('作戰卡（未進場）不算', () => {
     expect(enrich([mk({ opened_at: null, closed_at: null, exit_price: null, exit_reason: null })])).toEqual([])
   })
-  test('r 與估算損益', () => {
+  test('R 由價格算；損益只用自己填的，不估算', () => {
     const e = enrich([mk({ r: 2 })])[0]
     expect(e.r).toBe(2)
-    expect(e.pnl).toBe(20)
-    expect(e.pnlEstimated).toBe(true)
+    expect(e.pnl).toBeNull()
+    expect(enrich([mk({ r: 2, pnl_usdt: 18.5 })])[0].pnl).toBe(18.5)
   })
 })
 
 describe('summarize', () => {
   test('基本指標', () => {
     const s = summarize(enrich([mk({ r: 2 }), mk({ r: -1 }), mk({ r: 0 })]))
-    expect(s).toEqual({ n: 3, wins: 1, winRate: 1 / 3, totalR: 1, avgR: 0.33, pnl: 10 })
+    expect(s).toEqual({ n: 3, wins: 1, winRate: 1 / 3, totalR: 1, avgR: 0.33, pnl: null })
   })
-  test('空清單', () => expect(summarize([])).toEqual({ n: 0, wins: 0, winRate: 0, totalR: 0, avgR: 0, pnl: 0 }))
+  test('空清單', () => expect(summarize([])).toEqual({ n: 0, wins: 0, winRate: 0, totalR: 0, avgR: 0, pnl: null }))
+  test('損益只加有填的', () => expect(summarize(enrich([mk({ pnl_usdt: -17 }), mk({ pnl_usdt: 5 }), mk()])).pnl).toBe(-12))
 })
 
 describe('groupBy', () => {
@@ -113,14 +114,14 @@ describe('biggestProblem', () => {
   test('同分時紀律優先', () => {
     const week = enrich(
       [
-        mk({ r: -1, mistake_tags: ['revenge'], setup_id: 's1', symbol: 'A' }),
-        mk({ r: -1, mistake_tags: ['revenge'], setup_id: 's1', symbol: 'B' }),
+        mk({ r: -1, mistake_tags: ['tilt'], setup_id: 's1', symbol: 'A' }),
+        mk({ r: -1, mistake_tags: ['tilt'], setup_id: 's1', symbol: 'B' }),
       ],
       () => [],
     )
     const p = biggestProblem(week, new Map([['s1', '突破']]))!
     expect(p.dimension).toBe('discipline')
-    expect(p.label).toBe('報復')
+    expect(p.label).toBe('上頭')
     expect(p.totalR).toBe(-2)
     expect(p.n).toBe(2)
     expect(p.share).toBe(1)

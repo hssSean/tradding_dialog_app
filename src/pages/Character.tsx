@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Button, Errors, LoadError, Loading, inputClass } from '../components/ui'
+import { Button, Errors, LoadError, Loading } from '../components/ui'
 import Radar from '../components/home/Radar'
 import { ACHIEVEMENTS, CLASS_DESCRIPTIONS, VIOLATION_LABELS } from '../game/rules'
 import { buildInfo, signOut, storageUsageBytes, updateSettings } from '../lib/db'
-import { fmtR, fmtUsdt, parseNum } from '../lib/format'
+import { fmtR } from '../lib/format'
 import { useAsync } from '../lib/useAsync'
 import { type Journal, useJournal } from '../lib/useJournal'
 
@@ -30,10 +30,8 @@ function Section({ title, note, children }: { title: string; note?: string; chil
 }
 
 function CharacterPage({ journal, reload }: { journal: Journal; reload: () => void }) {
-  const { game, settings } = journal
+  const { game } = journal
   const { profile, recap } = game
-  const [equity, setEquity] = useState(settings.starting_equity === null ? '' : String(settings.starting_equity))
-  const [equityStatus, setEquityStatus] = useState<string>()
   const [errors, setErrors] = useState<string[]>([])
   const usage = useAsync(storageUsageBytes, [])
 
@@ -49,11 +47,6 @@ function CharacterPage({ journal, reload }: { journal: Journal; reload: () => vo
     }
   }
 
-  async function saveEquity() {
-    const v = parseNum(equity)
-    if (v === null || !(v > 0)) return setEquityStatus('要大於 0')
-    setEquityStatus((await run(() => updateSettings({ starting_equity: v }))) ? '已儲存' : undefined)
-  }
 
   const usedMb = usage.data === undefined ? null : usage.data / 1024 / 1024
 
@@ -156,24 +149,8 @@ function CharacterPage({ journal, reload }: { journal: Journal; reload: () => vo
         </Section>
       )}
 
-      <Section title="帳戶">
+      <Section title="設定">
         <Errors errors={errors} />
-        <div>
-          <span className="mb-1 block text-sm text-paper-dim">起始權益 USDT（之後每筆平倉自動加上損益）</span>
-          <div className="flex gap-2">
-            <input className={inputClass} inputMode="decimal" value={equity} onChange={(e) => setEquity(e.target.value)} placeholder="例如 10000" />
-            <Button className="shrink-0" onClick={saveEquity}>
-              儲存
-            </Button>
-          </div>
-          {equityStatus && <p className="mt-1 text-xs text-paper-dim">{equityStatus}</p>}
-        </div>
-        {game.equity !== null && (
-          <p className="text-sm text-paper-dim">
-            目前權益 <span className="data text-paper">{game.equity.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> USDT（累計{' '}
-            {fmtUsdt(game.equity - (settings.starting_equity ?? 0))}）。跟實際帳戶差太多時，改起始權益校正。
-          </p>
-        )}
         <div>
           <p className="text-sm text-paper-dim">截圖儲存用量</p>
           {usedMb === null ? (

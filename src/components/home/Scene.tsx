@@ -85,10 +85,10 @@ interface Props {
   sub: string
   xp: number
   xpToNext: number
-  maxDrawdownPct: number | null
+  maxDrawdownR: number
 }
 
-export default function Scene({ rs, hp, hpHint, eyebrow, title, sub, xp, xpToNext, maxDrawdownPct }: Props) {
+export default function Scene({ rs, hp, hpHint, eyebrow, title, sub, xp, xpToNext, maxDrawdownR }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [peak, setPeak] = useState<{ x: number; y: number; total: number } | null>(null)
@@ -310,7 +310,7 @@ export default function Scene({ rs, hp, hpHint, eyebrow, title, sub, xp, xpToNex
           <>
             <span>前山是本季權益曲線</span>
             <span>
-              <b>{rs.length}</b> 筆 · 最大回撤 <b>{maxDrawdownPct === null ? '—' : `${maxDrawdownPct}%`}</b>
+              <b>{rs.length}</b> 筆 · 最大回撤 <b>{maxDrawdownR.toFixed(1)}R</b>
             </span>
           </>
         )}

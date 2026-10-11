@@ -73,7 +73,7 @@ export async function getSettings(): Promise<Settings> {
   return must(await supabase.from('journal_settings').select('*').single<Settings>())
 }
 
-export async function updateSettings(patch: Partial<Pick<Settings, 'starting_equity' | 'display_title'>>): Promise<void> {
+export async function updateSettings(patch: Partial<Pick<Settings, 'display_title'>>): Promise<void> {
   check(await supabase.from('journal_settings').update(patch).eq('user_id', await userId()))
 }
 
@@ -106,32 +106,23 @@ export async function getTrade(id: string): Promise<Trade> {
 
 const nowIso = () => new Date().toISOString()
 
-/**
- * 立作戰卡（e.opened_at 為 null）或補記交易（e.opened_at 有值、沒有作戰卡）。
- * equity 是存檔當下的帳戶權益，用來算風險 %。
- */
-export async function createTrade(e: EntryInput, equity: number | null): Promise<Trade> {
+/** 立作戰卡（e.opened_at 為 null）或補記交易（e.opened_at 有值、沒有作戰卡） */
+export async function createTrade(e: EntryInput): Promise<Trade> {
   const row = {
     ...e,
     symbol: normalizeSymbol(e.symbol),
     card_at: e.opened_at === null ? nowIso() : null,
-    equity_at_entry: equity,
     gamified: true,
   }
   return must(await supabase.from('journal_trades').insert(row).select('*').single<Trade>())
 }
 
-/**
- * 作戰卡 → 已進場。成交價和計畫不同時，風險金額按止損距離等比調整（數量不變）。
- */
+/** 作戰卡 → 已進場，補上實際成交價與時間 */
 export async function markEntered(t: Trade, openedAt: string, fillPrice: number): Promise<Trade> {
-  const planDist = Math.abs(t.entry_price - t.planned_stop)
-  const fillDist = Math.abs(fillPrice - t.planned_stop)
-  const risk = planDist > 0 ? Math.round(((t.risk_usdt * fillDist) / planDist) * 100) / 100 : t.risk_usdt
   return must(
     await supabase
       .from('journal_trades')
-      .update({ opened_at: openedAt, entry_price: fillPrice, risk_usdt: risk })
+      .update({ opened_at: openedAt, entry_price: fillPrice })
       .eq('id', t.id)
       .select('*')
       .single<Trade>(),
