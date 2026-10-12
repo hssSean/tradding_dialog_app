@@ -8,7 +8,9 @@
 - `allOrders.data.orders[]`：`orderId`、`type`（`MARKET`/`LIMIT`/`STOP_MARKET`/`TAKE_PROFIT_MARKET`）、`status`（`FILLED`/`CANCELLED`）、`side`、`positionSide`、`stopPrice`、`avgPrice`、`time`、`updateTime`、`reduceOnly`、`positionID`。
   - ⚠ **`positionID` 是超過 2^53 的 JSON 數字**，`JSON.parse` 會失準（`…431042` → `…431000`）。解析前用 regex 把它轉成字串。
   - ⚠ **查詢區間最多 7 天**（`109400 the query range is more than seven days`），要切段查。
-  - 止損單在開倉後才掛（例：ADA 14:57 開倉、15:03 掛止損）；改止損＝取消舊單、新掛一張。
+  - 止損單在開倉後才掛（例：ADA 14:57 開倉、15:03 掛止損）。
+- ⚠ **`positionHistory` 的 `pageIndex` 從 0 開始**（文件寫預設 1，實測 1 是第二頁）。
+- ⚠ **在 BingX 直接改倉位的止盈止損不留紀錄**：同一張條件單被修改，只拿得到最後的止損價（SUI 實例：初始 1.1834、BingX 只有 1.17）。
 - `income`（`incomeType=TRADING_FEE`，不帶 symbol）可列出所有交易過的幣種。
 - `v3/quote/klines`：公開，`[{open, close, high, low, volume, time}]`。
 - 過去 30 天 172 個倉位；10/4 起 34 個，日誌只有 11 筆。

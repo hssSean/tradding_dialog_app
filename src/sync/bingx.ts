@@ -151,6 +151,7 @@ export interface MatchCandidate {
   symbol: string
   direction: Direction
   opened_at: string | null
+  entry_price: number
   card_at: string | null
   abandoned_at: string | null
   external_id: string | null
@@ -158,29 +159,68 @@ export interface MatchCandidate {
 
 export const CARD_MATCH_MS = 12 * 3600_000
 export const OPEN_MATCH_MS = 30 * 60_000
+/** 手動記的時間常常是事後補的、差很多（2026-10-12：UNI 差 79 分鐘），進場價幾乎一樣就算同一筆 */
+export const SAME_DAY_MS = 12 * 3600_000
+export const PRICE_MATCH_PCT = 0.3
 
 /**
  * 找出這個 BingX 倉位對應的手動紀錄：同幣種、同方向、還沒對過帳，且
  * - 待進場的作戰卡，在開倉前 12 小時內立的；或
- * - 手動記的交易，進場時間差 30 分鐘內。
- * 有多筆時取時間最接近的；used 裡的不再重複配對。
+ * - 手動記的交易，進場時間差 30 分鐘內；或同一天內（±12 小時）且進場價差 0.3% 以內。
+ * 有多筆時取進場價最接近的，同價再取時間最接近的；used 裡的不再重複配對。
  */
 export function findMatch(imp: ImportedTrade, candidates: MatchCandidate[], used: Set<string>): string | null {
-  const open = Date.parse(imp.opened_at)
-  let best: { id: string; diff: number } | null = null
+  let best: { id: string; price: number; time: number } | null = null
   for (const c of candidates) {
-    if (used.has(c.id) || c.external_id || c.abandoned_at || c.symbol !== imp.symbol || c.direction !== imp.direction) continue
-    let diff: number | null = null
-    if (c.opened_at === null && c.card_at) {
-      const d = open - Date.parse(c.card_at)
-      if (d >= 0 && d <= CARD_MATCH_MS) diff = d
-    } else if (c.opened_at) {
-      const d = Math.abs(Date.parse(c.opened_at) - open)
-      if (d <= OPEN_MATCH_MS) diff = d
-    }
-    if (diff !== null && (!best || diff < best.diff)) best = { id: c.id, diff }
+    if (used.has(c.id)) continue
+    const s = matchScore(imp, c)
+    if (s && (!best || better(s, best))) best = { id: c.id, ...s }
   }
   return best?.id ?? null
+}
+
+/** 符合對帳條件時回傳價差 %（越小越好）與時間差，不符合回傳 null */
+function matchScore(imp: ImportedTrade, c: MatchCandidate): { price: number; time: number } | null {
+  if (c.external_id || c.abandoned_at || c.symbol !== imp.symbol || c.direction !== imp.direction) return null
+  const open = Date.parse(imp.opened_at)
+  const price = (Math.abs(c.entry_price - imp.entry_price) / imp.entry_price) * 100
+  if (c.opened_at === null && c.card_at) {
+    const d = open - Date.parse(c.card_at)
+    return d >= 0 && d <= CARD_MATCH_MS ? { price, time: d } : null
+  }
+  if (c.opened_at) {
+    const d = Math.abs(Date.parse(c.opened_at) - open)
+    return d <= OPEN_MATCH_MS || (d <= SAME_DAY_MS && price <= PRICE_MATCH_PCT) ? { price, time: d } : null
+  }
+  return null
+}
+
+const better = (a: { price: number; time: number }, b: { price: number; time: number }) =>
+  a.price < b.price - 1e-9 || (Math.abs(a.price - b.price) <= 1e-9 && a.time < b.time)
+
+/**
+ * 一次對整批倉位配對：先列出所有符合條件的組合，價差最小（同價取時間最近）的先配，
+ * 每筆手動紀錄、每個倉位都只配一次。逐筆依時間配會讓較早的倉位搶走紀錄
+ * （2026-10-12 ICP 實例：日誌 3.01，16:30@3.008 先處理就搶走了本該配 16:51@3.01 的紀錄）。
+ * 回傳 external_id → 手動紀錄 id。
+ */
+export function assignMatches(imps: ImportedTrade[], candidates: MatchCandidate[]): Map<string, string> {
+  const pairs: { imp: string; cand: string; price: number; time: number }[] = []
+  for (const imp of imps) {
+    for (const c of candidates) {
+      const s = matchScore(imp, c)
+      if (s) pairs.push({ imp: imp.external_id, cand: c.id, ...s })
+    }
+  }
+  pairs.sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0))
+  const out = new Map<string, string>()
+  const usedCand = new Set<string>()
+  for (const p of pairs) {
+    if (out.has(p.imp) || usedCand.has(p.cand)) continue
+    out.set(p.imp, p.cand)
+    usedCand.add(p.cand)
+  }
+  return out
 }
 
 /**

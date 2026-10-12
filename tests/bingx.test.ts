@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { canonicalQuery, convertPosition, findMatch, mergePatch, parseBingxJson, toBingxSymbol, type BxOrder, type BxPosition } from '../src/sync/bingx'
+import { assignMatches, canonicalQuery, convertPosition, findMatch, mergePatch, parseBingxJson, toBingxSymbol, type BxOrder, type BxPosition } from '../src/sync/bingx'
 
 // 2026-10-12 真實資料：ADA-USDT 10/11 14:07（台北）做空，掛止損 0.2486、止盈 0.2422，止損被觸發
 const T = (s: string) => Date.parse(s)
@@ -110,6 +110,7 @@ describe('findMatch', () => {
     symbol: 'ADAUSDT',
     direction: 'short' as const,
     opened_at: null,
+    entry_price: 0.2465,
     card_at: null,
     abandoned_at: null,
     external_id: null,
@@ -117,7 +118,16 @@ describe('findMatch', () => {
   })
   test('手動記的交易，進場時間差 30 分鐘內', () => {
     expect(findMatch(imp, [c({ id: 'a', opened_at: '2026-10-11T06:24:00Z' })], new Set())).toBe('a') // 日誌記 14:24，實際 14:07
-    expect(findMatch(imp, [c({ id: 'a', opened_at: '2026-10-11T06:38:00Z' })], new Set())).toBeNull()
+    expect(findMatch(imp, [c({ id: 'a', opened_at: '2026-10-11T06:38:00Z', entry_price: 0.25 })], new Set())).toBeNull()
+  })
+  test('時間差很多但同一天、進場價差 0.3% 內也算（UNI 實例：日誌 13:41 @7.339，實際 12:22 @7.352）', () => {
+    const uni = { ...imp, symbol: 'UNIUSDT', entry_price: 7.352, opened_at: '2026-10-09T04:22:00.000Z' }
+    const journal = c({ id: 'u', symbol: 'UNIUSDT', opened_at: '2026-10-09T05:41:00Z', entry_price: 7.339 })
+    expect(findMatch(uni, [journal], new Set())).toBe('u')
+    // 同一天的另一筆 UNI（10:10 @7.28）價差 0.8%，不能配到這筆
+    expect(findMatch({ ...uni, entry_price: 7.28, opened_at: '2026-10-09T02:10:00.000Z' }, [journal], new Set())).toBeNull()
+    // 超過 12 小時就不算
+    expect(findMatch({ ...uni, opened_at: '2026-10-08T17:00:00.000Z' }, [journal], new Set())).toBeNull()
   })
   test('作戰卡在開倉前 12 小時內', () => {
     expect(findMatch(imp, [c({ id: 'k', card_at: '2026-10-10T18:07:00Z' })], new Set())).toBe('k')
@@ -128,11 +138,32 @@ describe('findMatch', () => {
     const cands = [
       c({ id: 'long', direction: 'long', opened_at: '2026-10-11T06:07:00Z' }),
       c({ id: 'done', opened_at: '2026-10-11T06:07:00Z', external_id: '1' }),
-      c({ id: 'far', opened_at: '2026-10-11T06:30:00Z' }),
+      c({ id: 'far', opened_at: '2026-10-11T06:30:00Z', entry_price: 0.2466 }),
       c({ id: 'near', opened_at: '2026-10-11T06:10:00Z' }),
     ]
     expect(findMatch(imp, cands, new Set())).toBe('near')
     expect(findMatch(imp, cands, new Set(['near']))).toBe('far')
+  })
+})
+
+describe('assignMatches', () => {
+  test('整批配對：價差最小的先配，不讓較早的倉位搶走（ICP 實例）', () => {
+    const base = convertPosition(pos, orders)
+    const early = { ...base, external_id: 'p1630', symbol: 'ICPUSDT', entry_price: 3.008, opened_at: '2026-10-09T08:30:00.000Z' }
+    const later = { ...base, external_id: 'p1651', symbol: 'ICPUSDT', entry_price: 3.01, opened_at: '2026-10-09T08:51:00.000Z' }
+    const journal = {
+      id: 'icp',
+      symbol: 'ICPUSDT',
+      direction: 'short' as const,
+      opened_at: '2026-10-09T09:29:00Z',
+      entry_price: 3.01,
+      card_at: null,
+      abandoned_at: null,
+      external_id: null,
+    }
+    const m = assignMatches([early, later], [journal])
+    expect(m.get('p1651')).toBe('icp')
+    expect(m.has('p1630')).toBe(false)
   })
 })
 
