@@ -149,3 +149,11 @@ create trigger journal_daily_notes_updated before update on journal_daily_notes
   for each row execute function journal_set_updated_at();
 alter table journal_daily_notes enable row level security;
 create policy journal_own on journal_daily_notes for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ── 2026-10-12 BingX 自動匯入（見 migrations/2026-10-12-bingx.sql）────────
+alter table journal_trades
+  add column source text not null default 'manual' check (source in ('manual', 'bingx')),
+  add column external_id text,                -- BingX positionId
+  alter column planned_stop drop not null;    -- 匯入時沒有止損單 → 待補止損
+create unique index journal_trades_external on journal_trades (user_id, external_id) where external_id is not null;
+alter table journal_settings add column bingx_synced_at timestamptz;

@@ -1,0 +1,223 @@
+/**
+ * BingX → 日誌的純函數。前端測試與 Vercel 函數（api/bingx）共用，不碰網路與資料庫。
+ * 欄位以 2026-10-12 用真實 key 驗證的回應為準，見 docs/superpowers/plans/2026-10-12-bingx-sync.md。
+ */
+import type { Direction, ExitReason, StopEdit } from '../lib/types'
+
+export interface BxPosition {
+  positionId: string
+  symbol: string // 'ADA-USDT'
+  positionSide: string // 'LONG' | 'SHORT' | 'BOTH'
+  openTime: number
+  updateTime: number
+  avgPrice: string
+  avgClosePrice: string
+  netProfit: string
+  closeAllPositions: boolean
+}
+
+export interface BxOrder {
+  orderId: string
+  symbol: string
+  type: string // MARKET | LIMIT | STOP_MARKET | STOP | TAKE_PROFIT_MARKET | TAKE_PROFIT
+  status: string // FILLED | CANCELLED | ...
+  side: string // BUY | SELL
+  positionSide: string
+  stopPrice: string
+  avgPrice: string
+  time: number
+  updateTime: number
+  reduceOnly: boolean
+  positionID: string
+}
+
+/** 匯入一個倉位要寫進 journal_trades 的欄位 */
+export interface ImportedTrade {
+  external_id: string
+  symbol: string
+  direction: Direction
+  opened_at: string
+  closed_at: string
+  entry_price: number
+  exit_price: number
+  pnl_usdt: number
+  /**
+   * BingX 的止損價。⚠ 在 BingX 直接改倉位的止盈止損時，是修改同一張條件單、不留修改紀錄，
+   * 所以這通常是「最後的止損」，不一定是初始止損（2026-10-12 SUI 實例：初始 1.1834，BingX 只有 1.17）。
+   * 沒有止損單、或止損在獲利那一側 → null，待使用者補。
+   */
+  planned_stop: number | null
+  final_stop: number | null
+  stop_edits: StopEdit[]
+  planned_target: number | null
+  exit_reason: ExitReason
+}
+
+// ── 簽章 ────────────────────────────────────────────────
+
+/** 依 key 的 ASCII 排序組成 k=v&k=v（不 URL 編碼），這是要拿去 HMAC-SHA256 的字串 */
+export function canonicalQuery(params: Record<string, string | number | boolean>): string {
+  return Object.keys(params)
+    .sort()
+    .map((k) => `${k}=${params[k]}`)
+    .join('&')
+}
+
+// ── 解析 ────────────────────────────────────────────────
+
+/**
+ * BingX 訂單的 positionID 是超過 2^53 的 JSON 數字，直接 JSON.parse 會失準
+ * （2107726997673431042 → 2107726997673431000），先轉成字串再解析。
+ */
+export function parseBingxJson<T>(text: string): T {
+  return JSON.parse(text.replace(/"(positionID|positionId|orderId|mainOrderId|triggerOrderId)":(\d{15,})/g, '"$1":"$2"')) as T
+}
+
+/** 'ADA-USDT' → 'ADAUSDT' */
+export const toJournalSymbol = (s: string) => s.replace('-', '')
+/** 'ADAUSDT' → 'ADA-USDT' */
+export const toBingxSymbol = (s: string) => (s.includes('-') ? s : s.replace(/USDT$/, '-USDT'))
+
+// ── 倉位 → 交易 ─────────────────────────────────────────
+
+const STOP_TYPES = new Set(['STOP_MARKET', 'STOP'])
+const TP_TYPES = new Set(['TAKE_PROFIT_MARKET', 'TAKE_PROFIT'])
+const iso = (ms: number) => new Date(ms).toISOString()
+
+/** 這張訂單屬於這個倉位嗎：優先用 positionID；沒有時用幣種、方向與時間區間 */
+function belongsTo(o: BxOrder, p: BxPosition): boolean {
+  if (o.positionID && o.positionID !== '0') return o.positionID === p.positionId
+  return o.symbol === p.symbol && o.positionSide === p.positionSide && o.time >= p.openTime - 60_000 && o.time <= p.updateTime + 60_000
+}
+
+function directionOf(p: BxPosition, orders: BxOrder[]): Direction {
+  if (p.positionSide === 'LONG') return 'long'
+  if (p.positionSide === 'SHORT') return 'short'
+  // 單向持倉（BOTH）：看第一張開倉單的買賣方向
+  const opening = orders.filter((o) => !o.reduceOnly && o.status === 'FILLED').sort((a, b) => a.time - b.time)[0]
+  return opening?.side === 'SELL' ? 'short' : 'long'
+}
+
+export function convertPosition(p: BxPosition, allOrders: BxOrder[]): ImportedTrade {
+  const orders = allOrders.filter((o) => belongsTo(o, p)).sort((a, b) => a.time - b.time)
+  const direction = directionOf(p, orders)
+  const sign = direction === 'long' ? 1 : -1
+  const entry = Number(p.avgPrice)
+  /** 止損在虧損那一側才算止損 */
+  const onLossSide = (price: number) => (entry - price) * sign > 0
+
+  const stops = orders
+    .filter((o) => STOP_TYPES.has(o.type) && Number(o.stopPrice) > 0 && o.time <= p.updateTime)
+    .map((o) => ({ at: o.time, price: Number(o.stopPrice) }))
+  const first = stops[0]
+  const planned_stop = first && onLossSide(first.price) ? first.price : null
+
+  const stop_edits: StopEdit[] = []
+  if (planned_stop !== null) {
+    let prev = planned_stop
+    for (const s of stops.slice(1)) {
+      if (s.price === prev) continue
+      stop_edits.push({ at: iso(s.at), from: prev, to: s.price })
+      prev = s.price
+    }
+  }
+
+  const tp = orders.find((o) => TP_TYPES.has(o.type) && Number(o.stopPrice) > 0 && (Number(o.stopPrice) - entry) * sign > 0)
+
+  const lastFill = orders.filter((o) => o.status === 'FILLED' && o.reduceOnly).sort((a, b) => a.updateTime - b.updateTime).pop()
+  const exit_reason: ExitReason = lastFill && STOP_TYPES.has(lastFill.type) ? 'stop' : lastFill && TP_TYPES.has(lastFill.type) ? 'target' : 'other'
+
+  return {
+    external_id: p.positionId,
+    symbol: toJournalSymbol(p.symbol),
+    direction,
+    opened_at: iso(p.openTime),
+    closed_at: iso(p.updateTime),
+    entry_price: entry,
+    exit_price: Number(p.avgClosePrice),
+    pnl_usdt: Math.round(Number(p.netProfit) * 10000) / 10000,
+    planned_stop,
+    final_stop: planned_stop === null ? null : (stops[stops.length - 1]?.price ?? planned_stop),
+    stop_edits,
+    planned_target: tp ? Number(tp.stopPrice) : null,
+    exit_reason,
+  }
+}
+
+// ── 對帳 ────────────────────────────────────────────────
+
+export interface MatchCandidate {
+  id: string
+  symbol: string
+  direction: Direction
+  opened_at: string | null
+  card_at: string | null
+  abandoned_at: string | null
+  external_id: string | null
+}
+
+export const CARD_MATCH_MS = 12 * 3600_000
+export const OPEN_MATCH_MS = 30 * 60_000
+
+/**
+ * 找出這個 BingX 倉位對應的手動紀錄：同幣種、同方向、還沒對過帳，且
+ * - 待進場的作戰卡，在開倉前 12 小時內立的；或
+ * - 手動記的交易，進場時間差 30 分鐘內。
+ * 有多筆時取時間最接近的；used 裡的不再重複配對。
+ */
+export function findMatch(imp: ImportedTrade, candidates: MatchCandidate[], used: Set<string>): string | null {
+  const open = Date.parse(imp.opened_at)
+  let best: { id: string; diff: number } | null = null
+  for (const c of candidates) {
+    if (used.has(c.id) || c.external_id || c.abandoned_at || c.symbol !== imp.symbol || c.direction !== imp.direction) continue
+    let diff: number | null = null
+    if (c.opened_at === null && c.card_at) {
+      const d = open - Date.parse(c.card_at)
+      if (d >= 0 && d <= CARD_MATCH_MS) diff = d
+    } else if (c.opened_at) {
+      const d = Math.abs(Date.parse(c.opened_at) - open)
+      if (d <= OPEN_MATCH_MS) diff = d
+    }
+    if (diff !== null && (!best || diff < best.diff)) best = { id: c.id, diff }
+  }
+  return best?.id ?? null
+}
+
+/**
+ * 已存在的紀錄（使用者可能補過資料）要更新哪些欄位：BingX 的事實覆蓋，使用者的判斷保留。
+ * 使用者填的初始止損優先；BingX 的止損只當作最後止損，兩者不同就記一筆移動，逆向移動照樣抓得到。
+ */
+export function mergePatch(
+  existing: {
+    planned_stop: number | null
+    planned_target: number | null
+    exit_reason: ExitReason | null
+    stop_edits: StopEdit[]
+  },
+  imp: ImportedTrade,
+): Partial<ImportedTrade> {
+  const patch: Partial<ImportedTrade> = {
+    external_id: imp.external_id,
+    opened_at: imp.opened_at,
+    closed_at: imp.closed_at,
+    entry_price: imp.entry_price,
+    exit_price: imp.exit_price,
+    pnl_usdt: imp.pnl_usdt,
+    planned_stop: existing.planned_stop ?? imp.planned_stop,
+    planned_target: existing.planned_target ?? imp.planned_target,
+    exit_reason: existing.exit_reason ?? imp.exit_reason,
+  }
+  if (imp.final_stop === null) return patch
+  if (existing.planned_stop === null) {
+    patch.stop_edits = imp.stop_edits
+    patch.final_stop = imp.final_stop
+    return patch
+  }
+  // 使用者有初始止損：保留 App 裡記的移動；最後止損和 App 記錄的不同，就補一筆到出場時間
+  const edits = [...existing.stop_edits]
+  const last = edits.length ? edits[edits.length - 1].to : existing.planned_stop
+  if (imp.final_stop !== last) edits.push({ at: imp.closed_at, from: last, to: imp.final_stop })
+  patch.stop_edits = edits
+  patch.final_stop = imp.final_stop
+  return patch
+}
