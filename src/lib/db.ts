@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
+import { fillStopPatch } from '../sync/bingx'
 import { currentStop, normalizeSymbol } from './trade'
-import type { DailyNote, EntryInput, ExitInput, ImageKind, Settings, Setup, Trade, TradeImage, WeeklyReview } from './types'
+import type { DailyNote, Emotion, EntryInput, ExitInput, ImageKind, RawTrade, Settings, Setup, Trade, TradeImage, WeeklyReview } from './types'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -96,8 +97,9 @@ export async function reviewSetup(id: string, keep: boolean): Promise<void> {
 
 // ── 交易 ────────────────────────────────────────────────
 
-export async function listTrades(): Promise<Trade[]> {
-  return must(await supabase.from('journal_trades').select('*').order('created_at', { ascending: false }).returns<Trade[]>())
+/** 全部紀錄，包含待補止損（planned_stop 為 null）的 BingX 匯入 */
+export async function listTrades(): Promise<RawTrade[]> {
+  return must(await supabase.from('journal_trades').select('*').order('created_at', { ascending: false }).returns<RawTrade[]>())
 }
 
 export async function getTrade(id: string): Promise<Trade> {
@@ -131,18 +133,6 @@ export async function markEntered(t: Trade, openedAt: string, fillPrice: number)
 
 export async function abandonCard(id: string): Promise<void> {
   check(await supabase.from('journal_trades').update({ abandoned_at: nowIso() }).eq('id', id))
-}
-
-/** 進場後才補作戰卡：card_at 晚於 opened_at，只拿一半經驗值，評分仍視為沒有作戰卡 */
-export async function fillCardLate(id: string, patch: { entry_reason: string | null; emotion: Trade['emotion'] }): Promise<Trade> {
-  return must(
-    await supabase
-      .from('journal_trades')
-      .update({ ...patch, card_at: nowIso() })
-      .eq('id', id)
-      .select('*')
-      .single<Trade>(),
-  )
 }
 
 /** 持倉中移動止損：每次都記下時間與前後價位，用來判斷是否逆向移動 */
@@ -197,6 +187,92 @@ export async function deleteTrade(id: string): Promise<void> {
   const images = await listImages(id)
   if (images.length) check(await supabase.storage.from(BUCKET).remove(images.map((i) => i.path)))
   check(await supabase.from('journal_trades').delete().eq('id', id))
+}
+
+/**
+ * 晚上補資料（BingX 匯入或補記的交易）：setup、理由、情緒、初始止損、目標。
+ * 第一次補的時間記為作戰卡時間；進場當天補完就算有作戰卡。
+ */
+export async function fillDetails(
+  t: RawTrade,
+  input: { setup_id: string | null; entry_reason: string | null; emotion: Emotion | null; planned_stop: number; planned_target: number | null },
+): Promise<void> {
+  const now = nowIso()
+  const stops = fillStopPatch(t, input.planned_stop, now)
+  check(
+    await supabase
+      .from('journal_trades')
+      .update({
+        setup_id: input.setup_id,
+        entry_reason: input.entry_reason,
+        emotion: input.emotion,
+        planned_target: input.planned_target,
+        ...stops,
+        card_at: t.card_at ?? now,
+      })
+      .eq('id', t.id),
+  )
+}
+
+// ── BingX ───────────────────────────────────────────────
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  if (!token) throw new Error('登入已過期，請重新登入')
+  const res = await fetch(path, { ...init, headers: { ...init?.headers, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } })
+  const body = (await res.json().catch(() => ({ error: `伺服器回應 ${res.status}` }))) as T & { error?: string }
+  if (!res.ok || body.error) throw new Error(body.error ?? `伺服器回應 ${res.status}`)
+  return body
+}
+
+export interface SyncResult {
+  created: number
+  merged: number
+  updated: number
+  pendingStop: number
+  failed: { symbol: string; error: string }[]
+}
+
+/**
+ * 從 BingX 同步：先規劃要處理的幣種，再一次一種（避免單次超過函數時間上限），最後記下同步時間。
+ * 有幣種失敗時不記同步時間，下次會重試同一段。
+ */
+export async function syncBingx(onProgress?: (done: number, total: number) => void): Promise<SyncResult> {
+  const startedAt = nowIso()
+  const plan = await api<{ start: number; symbols: string[] }>('/api/bingx/sync', { method: 'POST', body: JSON.stringify({ action: 'plan' }) })
+  const result: SyncResult = { created: 0, merged: 0, updated: 0, pendingStop: 0, failed: [] }
+  for (const [i, symbol] of plan.symbols.entries()) {
+    onProgress?.(i, plan.symbols.length)
+    try {
+      const r = await api<Omit<SyncResult, 'failed'>>('/api/bingx/sync', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'symbol', symbol, start: plan.start }),
+      })
+      result.created += r.created
+      result.merged += r.merged
+      result.updated += r.updated
+      result.pendingStop += r.pendingStop
+    } catch (e) {
+      result.failed.push({ symbol, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  onProgress?.(plan.symbols.length, plan.symbols.length)
+  if (!result.failed.length) await api('/api/bingx/sync', { method: 'POST', body: JSON.stringify({ action: 'finish', at: startedAt }) })
+  return result
+}
+
+export interface Candle {
+  time: number
+  open: number
+  high: number
+  low: number
+  close: number
+}
+
+export async function fetchKlines(symbol: string, interval: string, startTime: number, endTime: number): Promise<Candle[]> {
+  const q = new URLSearchParams({ symbol, interval, startTime: String(startTime), endTime: String(endTime) })
+  return api<Candle[]>(`/api/bingx/klines?${q}`)
 }
 
 // ── 截圖 ────────────────────────────────────────────────

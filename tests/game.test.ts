@@ -39,19 +39,34 @@ describe('評分 §4.2', () => {
     expect(e.grade).toBe('S')
     expect(e.provisional).toBe(false)
   })
-  test('沒有作戰卡 → 75、A', () => {
+  test('沒有作戰卡（當天過完）→ 75、A', () => {
     const t = g({ card_at: null })
-    const e = evalOf([t], t.id)
+    const e = evalOf([t], t.id, new Date('2026-10-07T03:00:00Z'))
     expect(e.items!.card).toBe(0)
     expect(e.score).toBe(75)
     expect(e.violations).toContain('no_card')
   })
-  test('進場後才補卡：評分仍視為沒有作戰卡', () => {
-    const t = g({ card_at: '2026-10-06T01:30:00Z' })
-    const e = evalOf([t], t.id)
+  // 2026-10-12 使用者決定：晚上補也不扣分——進場當天（台北 24:00 前）補完理由就算有作戰卡
+  test('進場當天晚上才補卡：算有作戰卡', () => {
+    const t = g({ card_at: '2026-10-06T15:59:00Z' }) // 台北 10/06 23:59
+    const e = evalOf([t], t.id, new Date('2026-10-07T03:00:00Z'))
+    expect(e.cardBefore).toBe(true)
+    expect(e.items!.card).toBe(25)
+    expect(e.violations).not.toContain('no_card')
+  })
+  test('隔天才補卡：算補卡，該項 0 分、記 FOMO', () => {
+    const t = g({ card_at: '2026-10-06T16:00:00Z' }) // 台北 10/07 00:00
+    const e = evalOf([t], t.id, new Date('2026-10-07T03:00:00Z'))
     expect(e.cardBefore).toBe(false)
     expect(e.cardAfter).toBe(true)
     expect(e.items!.card).toBe(0)
+    expect(e.violations).toContain('no_card')
+  })
+  test('進場當天還沒過完、還沒補：不算違規，評分暫定', () => {
+    const t = g({ card_at: null, reviewed_at: null })
+    const e = evalOf([t], t.id, new Date('2026-10-06T08:00:00Z')) // 台北 16:00
+    expect(e.violations).not.toContain('no_card')
+    expect(e.provisional).toBe(true)
   })
   test('逆向移動止損 → 該項 0 分', () => {
     const t = g({ stop_edits: [{ at: '2026-10-06T01:20:00Z', from: 95, to: 93 }] })

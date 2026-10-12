@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { assignMatches, canonicalQuery, convertPosition, findMatch, mergePatch, parseBingxJson, toBingxSymbol, type BxOrder, type BxPosition } from '../src/sync/bingx'
+import { assignMatches, canonicalQuery, fillStopPatch, convertPosition, findMatch, mergePatch, parseBingxJson, toBingxSymbol, type BxOrder, type BxPosition } from '../src/sync/bingx'
 
 // 2026-10-12 真實資料：ADA-USDT 10/11 14:07（台北）做空，掛止損 0.2486、止盈 0.2422，止損被觸發
 const T = (s: string) => Date.parse(s)
@@ -188,5 +188,27 @@ describe('mergePatch', () => {
     const edits = [{ at: '2026-10-11T06:30:00Z', from: 0.249, to: 0.2486 }]
     const p = mergePatch({ ...none, planned_stop: 0.249, stop_edits: edits }, imp)
     expect(p.stop_edits).toEqual(edits)
+  })
+})
+
+describe('fillStopPatch', () => {
+  const NOW = '2026-10-12T14:00:00.000Z'
+  const base = { planned_stop: 1.17, final_stop: 1.17, stop_edits: [], closed_at: '2026-10-07T00:23:00.000Z' }
+  test('使用者確認的初始止損就是 BingX 的止損 → 沒有移動', () => {
+    expect(fillStopPatch(base, 1.17, NOW)).toEqual({ planned_stop: 1.17, final_stop: 1.17, stop_edits: [] })
+  })
+  test('使用者填的初始止損不同（SUI：1.1834）→ 記一筆移動到 BingX 的最後止損', () => {
+    expect(fillStopPatch(base, 1.1834, NOW)).toEqual({
+      planned_stop: 1.1834,
+      final_stop: 1.17,
+      stop_edits: [{ at: '2026-10-07T00:23:00.000Z', from: 1.1834, to: 1.17 }],
+    })
+  })
+  test('沒抓到止損單 → 初始止損就是最後止損', () => {
+    expect(fillStopPatch({ ...base, planned_stop: null, final_stop: null }, 0.5, NOW)).toEqual({ planned_stop: 0.5, final_stop: 0.5, stop_edits: [] })
+  })
+  test('App 裡已有移動紀錄就保留', () => {
+    const edits = [{ at: '2026-10-06T10:00:00Z', from: 1.1834, to: 1.117 }]
+    expect(fillStopPatch({ ...base, stop_edits: edits }, 1.1834, NOW).stop_edits).toEqual(edits)
   })
 })

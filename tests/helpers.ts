@@ -33,6 +33,8 @@ export function mk(over: Partial<Trade> & { r?: number } = {}): Trade {
     reviewed_at: null,
     abandoned_at: null,
     gamified: false,
+    source: 'manual',
+    external_id: null,
     created_at: '2026-10-06T01:00:00Z',
     updated_at: '2026-10-06T01:00:00Z',
     ...rest,

@@ -39,6 +39,8 @@ function closed(over: Partial<ClosedTrade> = {}): ClosedTrade {
     reviewed_at: null,
     abandoned_at: null,
     gamified: true,
+    source: 'manual',
+    external_id: null,
     created_at: '2026-10-01T00:00:00Z',
     updated_at: '2026-10-01T00:00:00Z',
     ...over,

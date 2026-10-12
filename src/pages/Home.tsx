@@ -52,6 +52,18 @@ export default function Home() {
 
       <main className="page">
 
+        {data.pending.length > 0 && (
+          <section className="sec">
+            <Link to="/log#pending" className="flex items-center justify-between">
+              <span>
+                <span className="font-brush text-xl text-moon">待補 {data.pending.length} 筆</span>
+                <span className="ml-2 text-xs text-paper-dim">BingX 匯入的交易，當天補完理由算有作戰卡</span>
+              </span>
+              <span className="text-moon">→</span>
+            </Link>
+          </section>
+        )}
+
         {/* 狀態異常 */}
         <section className="sec" aria-label="狀態異常">
           {debuffs.length === 0 ? (

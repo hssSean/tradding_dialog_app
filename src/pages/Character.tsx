@@ -4,7 +4,7 @@ import { Button, Errors, LoadError, Loading } from '../components/ui'
 import Radar from '../components/home/Radar'
 import { ACHIEVEMENTS, CLASS_DESCRIPTIONS, VIOLATION_LABELS } from '../game/rules'
 import { buildInfo, signOut, storageUsageBytes, updateSettings } from '../lib/db'
-import { fmtR } from '../lib/format'
+import { fmtDateTime, fmtR } from '../lib/format'
 import { useAsync } from '../lib/useAsync'
 import { type Journal, useJournal } from '../lib/useJournal'
 
@@ -166,6 +166,9 @@ function CharacterPage({ journal, reload }: { journal: Journal; reload: () => vo
             </>
           )}
         </div>
+        <p className="text-sm text-paper-dim">
+          BingX：{journal.settings.bingx_synced_at ? `已連線 · 最後同步 ${fmtDateTime(journal.settings.bingx_synced_at)}` : '尚未同步'}
+        </p>
         <Button variant="secondary" className="w-full" onClick={() => void signOut()}>
           登出
         </Button>

@@ -261,3 +261,19 @@ export function mergePatch(
   patch.final_stop = imp.final_stop
   return patch
 }
+
+/**
+ * 晚上補資料時使用者確認的初始止損。BingX 抓到的止損其實是「最後止損」，
+ * 使用者填的初始止損不同時記一筆移動（時間記在出場），逆向移動才抓得到。
+ * App 裡已經有移動紀錄的就不動它。
+ */
+export function fillStopPatch(
+  t: { planned_stop: number | null; final_stop: number | null; stop_edits: StopEdit[]; closed_at: string | null },
+  initialStop: number,
+  nowIso: string,
+): { planned_stop: number; final_stop: number; stop_edits: StopEdit[] } {
+  if (t.stop_edits.length) return { planned_stop: initialStop, final_stop: t.final_stop ?? initialStop, stop_edits: t.stop_edits }
+  const last = t.final_stop ?? t.planned_stop
+  if (last === null || last === initialStop) return { planned_stop: initialStop, final_stop: initialStop, stop_edits: [] }
+  return { planned_stop: initialStop, final_stop: last, stop_edits: [{ at: t.closed_at ?? nowIso, from: initialStop, to: last }] }
+}

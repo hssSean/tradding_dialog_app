@@ -43,9 +43,19 @@ export interface Trade {
   abandoned_at: string | null
   /** false = v2 之前的舊資料，不評分 */
   gamified: boolean
+  /** manual：手動記錄；bingx：從 BingX 自動匯入（2026-10-12） */
+  source: 'manual' | 'bingx'
+  /** BingX positionId；手動紀錄對帳後也會帶上 */
+  external_id: string | null
   created_at: string
   updated_at: string
 }
+
+/**
+ * 資料庫裡的原始紀錄：從 BingX 匯入但沒抓到止損單時 planned_stop 為 null（待補止損）。
+ * 這種紀錄算不出 R，不進引擎與統計；補好止損後才變成 Trade。
+ */
+export type RawTrade = Omit<Trade, 'planned_stop'> & { planned_stop: number | null }
 
 export type OpenTrade = Trade & { opened_at: string }
 export type ClosedTrade = OpenTrade & { closed_at: string; exit_price: number; exit_reason: ExitReason }
@@ -85,6 +95,8 @@ export interface Setup {
 
 export interface Settings {
   user_id: string
+  /** 最後一次 BingX 同步完成的時間 */
+  bingx_synced_at: string | null
   display_title: string | null
 }
 

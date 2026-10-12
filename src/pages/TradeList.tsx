@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom'
 import { TradeRow } from '../components/game'
 import { LoadError, Loading } from '../components/ui'
-import { fmtDateTime } from '../lib/format'
+import { fmtDateTime, fmtUsdt } from '../lib/format'
+import { useSync } from '../lib/sync'
 import { isOpen, isPendingCard } from '../lib/trade'
 import type { Trade } from '../lib/types'
 import { useJournal } from '../lib/useJournal'
 
-function Side({ t }: { t: Trade }) {
+function Side({ t }: { t: Pick<Trade, 'direction'> }) {
   return <span className={`side ${t.direction === 'long' ? 'c-jade' : 'c-ochre'}`}>{t.direction === 'long' ? '多' : '空'}</span>
 }
 
@@ -17,7 +18,7 @@ export default function TradeList() {
   if (error) return <LoadError error={error} onRetry={reload} />
   if (!data) return null
 
-  const { trades, game, setupNames } = data
+  const { trades, game, setupNames, pending } = data
   const cards = trades.filter(isPendingCard)
   const open = trades.filter(isOpen).sort((a, b) => Date.parse(b.opened_at!) - Date.parse(a.opened_at!))
   const closed = [...game.timeline.closes].reverse()
@@ -37,6 +38,32 @@ export default function TradeList() {
           </Link>
         </div>
       </header>
+
+      <SyncBar syncedAt={data.settings.bingx_synced_at} />
+
+      {pending.length > 0 && (
+        <section id="pending">
+          <h2 className="mb-2 font-brush text-lg text-moon">待補資料 · {pending.length}</h2>
+          <p className="mb-1 text-xs text-paper-dim">從 BingX 匯入的交易，補上理由（當天補完算有作戰卡）{pending.some((t) => t.planned_stop === null) && '；沒有止損的要補止損才算得出 R'}。</p>
+          <div className="trades">
+            {pending.map((t) => (
+              <Link key={t.id} to={`/trade/${t.id}`} className="trade">
+                <div className="trade-mid">
+                  <div className="trade-sym">
+                    {t.symbol}
+                    <Side t={t} />
+                  </div>
+                  <div className="trade-meta">
+                    <span>{fmtDateTime(t.opened_at!)}</span>
+                    {t.planned_stop === null && <span className="tag c-ochre">缺止損</span>}
+                  </div>
+                </div>
+                {t.pnl_usdt !== null && <span className={`data text-sm ${t.pnl_usdt > 0 ? 'c-jade' : 'c-ochre'}`}>{fmtUsdt(t.pnl_usdt)}</span>}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-[1fr_auto] gap-3">
         <Link to="/card/new" className="slip" style={{ minHeight: 56 }}>
@@ -112,6 +139,29 @@ export default function TradeList() {
           </div>
         )}
       </section>
+    </div>
+  )
+}
+
+/** BingX 同步狀態與「立即同步」 */
+function SyncBar({ syncedAt }: { syncedAt: string | null }) {
+  const { syncing, progress, error, result, syncNow } = useSync()
+  return (
+    <div className="space-y-1 text-xs">
+      <div className="flex items-center justify-between gap-3 text-paper-dim">
+        <span>
+          {syncing
+            ? `BingX 同步中…${progress ? ` ${progress.done}/${progress.total}` : ''}`
+            : syncedAt
+              ? `BingX 最後同步 ${fmtDateTime(syncedAt)}`
+              : 'BingX 尚未同步'}
+          {!syncing && result && result.created + result.merged > 0 && `（新增 ${result.created}、對上 ${result.merged}）`}
+        </span>
+        <button type="button" className="min-h-10 px-2 text-moon disabled:opacity-40" onClick={syncNow} disabled={syncing}>
+          立即同步
+        </button>
+      </div>
+      {error && <p className="text-ochre">{error}</p>}
     </div>
   )
 }

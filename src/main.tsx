@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import AuthGate from './components/AuthGate'
 import Layout from './components/Layout'
+import { SyncProvider } from './lib/sync'
 import './index.css'
 import './components/home/home.css'
 import Character from './pages/Character'
@@ -19,6 +20,7 @@ import WeeklyReview from './pages/WeeklyReview'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthGate>
+      <SyncProvider>
       <BrowserRouter>
         <Routes>
           <Route element={<Layout />}>
@@ -41,6 +43,7 @@ createRoot(document.getElementById('root')!).render(
           </Route>
         </Routes>
       </BrowserRouter>
+      </SyncProvider>
     </AuthGate>
   </StrictMode>,
 )

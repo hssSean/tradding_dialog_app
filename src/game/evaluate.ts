@@ -151,12 +151,15 @@ export function buildTimeline(trades: Trade[], now: Date): Timeline {
     const nth = (dayCount.get(day) ?? 0) + 1
     dayCount.set(day, nth)
 
-    const cardBefore = t.card_at !== null && ms(t.card_at) < at
+    // 作戰卡在進場當天（台北 24:00 前）補完就算有（2026-10-12 使用者決定：晚上補也不扣分）
+    const cardDeadline = nextMidnight(new Date(at))
+    const cardBefore = t.card_at !== null && ms(t.card_at) < cardDeadline
+    const cardPending = t.card_at === null && nowMs < cardDeadline
     const stopAgainst = movedStopAgainst(t)
     const violations: Violation[] = []
     if (t.gamified) {
       if (stopAgainst) violations.push('stop_against')
-      if (!cardBefore) violations.push('no_card')
+      if (!cardBefore && !cardPending) violations.push('no_card')
       // 上頭：任一筆虧損平倉後 15 分鐘內開單（舊資料的虧損也算）
       const cooling = closedTrades.some((c) => {
         const dt = at - ms(c.closed_at)
@@ -209,7 +212,7 @@ export function buildTimeline(trades: Trade[], now: Date): Timeline {
     e.items = items
     e.score = score
     e.grade = grade
-    e.provisional = reviewDelay === null && nowMs - closedAt < REVIEW_HALF_MS
+    e.provisional = (reviewDelay === null && nowMs - closedAt < REVIEW_HALF_MS) || cardPending
     e.quadrant = quadrantOf(e.r, score)
     e.mainViolation = mainViolationOf(items, tilt && raw > TILT_SCORE_CAP)
   }
