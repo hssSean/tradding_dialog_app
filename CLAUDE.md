@@ -20,7 +20,7 @@ v2（2026-10-04）加上夜墨山水首頁與遊戲化：作戰卡、評分評�
 - **技術棧**：Vite + React 19 + TypeScript + Tailwind 4 + `vite-plugin-pwa`，純前端，部署 Vercel
 - **資料**：Supabase（Postgres + Auth email/密碼 + Storage 私有 bucket `journal-screenshots`），全部靠 RLS 保護，沒有自己的後端
 - **🔴 與 `tradding_app` 共用同一個 Supabase 專案與帳號**：本專案所有 DB 物件（表、函數、trigger、policy、bucket）一律 `journal_` 前綴。**絕不可**建立、修改、刪除 tradding_app 的 `trades`、`profiles`、`watchlist`、`push_subscriptions`，也不要用 `create or replace` 蓋到沒有前綴的函數。不可關閉公開註冊（tradding_app 需要）。
-- **資料來源**：全部手動輸入，不接交易所 API
+- **資料來源**：BingX USDT 永續合約自動匯入（2026-10-12 起，唯讀 key，伺服器函數 `api/bingx/`，新加坡 sin1）＋手動作戰卡／補記。規格 `docs/superpowers/specs/2026-10-12-bingx-sync-design.md`，**實測事實**記在 `docs/superpowers/plans/2026-10-12-bingx-sync.md`
 - **設計規格**：`docs/superpowers/specs/2026-10-04-trade-journal-design.md`（改行為前先讀）
 - **部署步驟**：`README.md`
 
@@ -31,6 +31,15 @@ v2（2026-10-04）加上夜墨山水首頁與遊戲化：作戰卡、評分評�
 - **交易生命週期**：`opened_at IS NULL` 是作戰卡，`abandoned_at` 是放棄的卡，`gamified = false` 是 v2 之前的舊資料（不評分、不算違規，但照樣影響精神力與冷卻）。
 - **不碰金錢（2026-10-11 使用者決定）**：倉位與資金使用者自己管。沒有起始權益、風險金額、風險 %、倉位階級、超風險／報復／過度自信；損益只顯示使用者自己填的實際損益，不估算；回撤用累積 R。`risk_usdt`、`equity_at_entry`、`starting_equity` 欄位只是舊資料，不要再拿來算任何東西。
 - **實際損益的正負號以價格為準**：價格是虧損卻填正數，一律轉負（`forms.ts` 的 `signedPnl`，2026-10-06 ENAUSDT 實例）。
+- **BingX API 的坑（2026-10-12 用真實 key 測出來，文件沒寫或寫錯）**：
+  - 訂單的 `positionID` 超過 2^53，一律用 `parseBingxJson` 解析，直接 `JSON.parse` 會失準、止損單對不到倉位
+  - `positionHistory` 的 `pageIndex` 從 **0** 開始（文件寫 1）
+  - `allOrders` 一次最多查 7 天
+  - **在 BingX 改倉位止損不留紀錄**，只拿得到最後止損 → 使用者填的初始止損優先，BingX 止損只當最後止損
+  - 手續費為 0 的倉位沒有收益流水，找幣種要併上日誌記過的幣種
+- **同步只允許 `JOURNAL_OWNER_USER_ID`**：Supabase 公開註冊開著，不限定 owner 別人能把擁有者的成交寫進自己帳號。寫入一律用使用者 JWT，不用 service role。
+- **對帳**：手動記的時間常差很多，用「30 分鐘內」或「同一天且進場價差 0.3% 內」，整批價差最小的先配（`assignMatches`），不要逐筆依時間配。
+- **作戰卡**：進場當天（台北 24:00 前）補完就算有（2026-10-12 使用者決定）。
 - **不用 `alert()`／`confirm()`／`prompt()`**（SPEC §8），二次確認一律做成頁面內區塊。
 - **盈虧不用紅綠**：賺 `jade`、賠 `ochre`，token 在 `src/index.css`；首頁 canvas 的顏色是寫死的十六進位值，改 token 要一起改 `Scene.tsx`。
 - **截圖只能輸出 JPEG**：iOS Safari canvas 不支援 WebP，會悄悄變 PNG。
@@ -60,6 +69,8 @@ node scripts/sb-query.mjs migration.sql     # 執行 SQL 檔
 ```
 
 部署：push 到 `main` 由 Vercel（專案 `tradding-dialog-app`，https://tradding-dialog-app.vercel.app）自動部署。
+⚠ 2026-10-12 push 後 GitHub 沒有觸發部署（Vercel 上連失敗紀錄都沒有），改用 `npx vercel deploy --prod --yes` 部署。push 後務必確認線上 bundle 的版本號（登入頁最下面）有更新。
+Vercel 伺服器端環境變數：`BINGX_API_KEY`、`BINGX_SECRET_KEY`（唯讀 key）、`JOURNAL_OWNER_USER_ID`，加上 `VITE_SUPABASE_*`。設定後要逐一確認（2026-10-04、10-12 都有一個值沒寫進去）。
 資料庫：`supabase/schema.sql` 已於 2026-10-05 套用。之後改 schema 要另寫 migration 並用 `sb-query.mjs` 執行，同時更新 `schema.sql`。
 
 ## 關鍵檔案
@@ -73,7 +84,9 @@ node scripts/sb-query.mjs migration.sql     # 執行 SQL 檔
 | `src/lib/trade.ts` | 單筆：R、目前止損、逆向移動判斷、輸入驗證（純函數） |
 | `src/lib/stats.ts` | 每週檢討：週次、分組、本週最大問題歸因（紀律鍵由引擎傳入） |
 | `src/lib/forms.ts` | 字串表單 ↔ 資料型別轉換與驗證 |
-| `src/lib/db.ts` | 唯一的 Supabase 存取點 |
+| `src/lib/db.ts` | 唯一的 Supabase 存取點（含 BingX 同步呼叫） |
+| `src/sync/bingx.ts` | BingX 倉位→交易、止損推導、對帳、補資料止損（純函數，前後端共用） |
+| `api/bingx/sync.ts`、`klines.ts` | Vercel 伺服器函數：同步（plan／symbol／finish、dryRun）、K 線轉發 |
 | `src/lib/image.ts` | 截圖壓縮（最長邊 2000px、JPEG 0.8） |
 | `supabase/schema.sql` | 資料表、RLS、Storage policy |
 | `src/pages/WeeklyReview.tsx` | 每週檢討頁 |
