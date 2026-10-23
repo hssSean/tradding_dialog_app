@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { fillStopPatch } from '../sync/bingx'
+import { autoKeyOf } from './chartShots'
 import { currentStop, normalizeSymbol } from './trade'
 import type { DailyNote, Emotion, EntryInput, ExitInput, ImageKind, RawTrade, Settings, Setup, Trade, TradeImage, WeeklyReview } from './types'
 
@@ -278,12 +279,12 @@ export async function fetchKlines(symbol: string, interval: string, startTime: n
 // ── 截圖 ────────────────────────────────────────────────
 
 /** 所有截圖的標註資訊（不含檔案），給遊戲化引擎算功課與經驗值 */
-export async function listImageMeta(): Promise<Pick<TradeImage, 'trade_id' | 'kind' | 'caption' | 'captioned_at'>[]> {
+export async function listImageMeta(): Promise<Pick<TradeImage, 'trade_id' | 'kind' | 'path' | 'caption' | 'captioned_at'>[]> {
   return must(
     await supabase
       .from('journal_trade_images')
-      .select('trade_id, kind, caption, captioned_at')
-      .returns<Pick<TradeImage, 'trade_id' | 'kind' | 'caption' | 'captioned_at'>[]>(),
+      .select('trade_id, kind, path, caption, captioned_at')
+      .returns<Pick<TradeImage, 'trade_id' | 'kind' | 'path' | 'caption' | 'captioned_at'>[]>(),
   )
 }
 
@@ -300,13 +301,13 @@ export async function listImages(tradeId: string): Promise<TradeImage[]> {
 
 /**
  * 每次上傳用新檔名，避免簽名網址拿到 CDN 快取的舊圖；舊檔在新檔寫入後刪除。
- * auto：K 線自動截圖，檔名帶 `-auto-`；那一格已經有圖就不寫，絕不覆蓋。
+ * autoKey：K 線自動截圖的指紋，檔名為 `{kind}-auto-{指紋}-{時間}.jpg`；只取代自動圖，使用者上傳的圖絕不覆蓋。
  */
-export async function uploadImage(tradeId: string, kind: ImageKind, blob: Blob, opts: { auto?: boolean } = {}): Promise<void> {
+export async function uploadImage(tradeId: string, kind: ImageKind, blob: Blob, opts: { autoKey?: string } = {}): Promise<void> {
   const uid = await userId()
-  const path = `${uid}/${tradeId}/${kind}-${opts.auto ? 'auto-' : ''}${Date.now()}.jpg`
+  const path = `${uid}/${tradeId}/${kind}-${opts.autoKey ? `auto-${opts.autoKey}-` : ''}${Date.now()}.jpg`
   const old = (await listImages(tradeId)).find((i) => i.kind === kind)
-  if (old && opts.auto) return
+  if (old && opts.autoKey && autoKeyOf(old.path) === undefined) return
   check(await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg' }))
   check(
     await supabase

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { EmotionPicker, GradeSeal, QuadrantTag, WarnIcon } from '../components/game'
 import ImagePicker from '../components/ImagePicker'
@@ -24,6 +24,8 @@ import { dayKey } from '../game/evaluate'
 import { useAsync } from '../lib/useAsync'
 import { useJournal } from '../lib/useJournal'
 import { useSync } from '../lib/sync'
+import { generateMissingShots } from '../lib/autoShots'
+import { autoKeyOf } from '../lib/chartShots'
 
 // 圖表套件約 160 KB，只在打開詳情頁時載入
 const LazyChart = lazy(() => import('../components/TradeChart'))
@@ -549,6 +551,13 @@ function ImagesCard({ t }: { t: Trade }) {
     const list = await listImages(t.id)
     return Promise.all(list.map(async (img) => ({ ...img, url: await imageUrl(img.path) })))
   }, [t.id, version])
+  // 打開詳情頁或改了交易時，缺圖或資料變了的自動圖馬上重畫，不用等下次同步
+  const { reload } = images
+  useEffect(() => {
+    generateMissingShots(t.id)
+      .then((n) => n > 0 && reload())
+      .catch((e: unknown) => console.warn('自動截圖失敗', e))
+  }, [t.id, t.updated_at, reload])
   return (
     <Card title="截圖">
       {images.error ? (
@@ -613,7 +622,7 @@ function ImageSlot({
   }
 
   // 自動產生的 K 線截圖可以換成自己的截圖
-  const auto = img?.path.includes('-auto-') ?? false
+  const auto = img ? autoKeyOf(img.path) !== undefined : false
   const picker = (pickerLabel: string) => (
     <>
       <ImagePicker label={pickerLabel} value={blob} onChange={setBlob} />

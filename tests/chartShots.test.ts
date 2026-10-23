@@ -1,34 +1,74 @@
 import { describe, expect, test } from 'vitest'
-import { chartRange, defaultInterval, missingShots, shotTitle } from '../src/lib/chartShots'
+import { chartRange, defaultInterval, intervalFor, shotKey, shotTitle, shotsToDraw } from '../src/lib/chartShots'
 import type { RawTrade } from '../src/lib/types'
 import { mk } from './helpers'
 
 const M15 = 15 * 60_000
 
-describe('missingShots', () => {
-  const img = (trade_id: string, kind: 'entry' | 'exit') => ({ trade_id, kind })
+describe('shotsToDraw', () => {
+  const NOW = Date.parse('2026-10-07T00:00:00Z')
+  const manual = (trade_id: string, kind: 'entry' | 'exit') => ({ trade_id, kind, path: `u1/${trade_id}/${kind}-1759000000000.jpg` })
+  const auto = (t: RawTrade, kind: 'entry' | 'exit', key = shotKey(t, kind, intervalFor(t, NOW))) => ({
+    trade_id: t.id,
+    kind,
+    path: `u1/${t.id}/${kind}-auto-${key}-1759000000000.jpg`,
+  })
+  const kinds = (trades: RawTrade[], images: { trade_id: string; kind: 'entry' | 'exit'; path: string }[]) =>
+    shotsToDraw(trades, images, NOW).map((s) => s.kind)
 
-  test('已平倉、沒有圖：補進場與出場', () => {
+  test('已平倉、沒有圖：補進場與出場', () => expect(kinds([mk()], [])).toEqual(['entry', 'exit']))
+
+  test('使用者上傳的圖不補也不覆蓋', () => {
     const t = mk()
-    expect(missingShots([t], []).map((s) => s.kind)).toEqual(['entry', 'exit'])
+    expect(kinds([t], [manual(t.id, 'entry')])).toEqual(['exit'])
+    expect(kinds([t], [manual(t.id, 'entry'), manual(t.id, 'exit')])).toEqual([])
   })
 
-  test('已有的格子不補（不覆蓋使用者上傳的圖）', () => {
+  test('自動圖資料沒變不重畫', () => {
     const t = mk()
-    expect(missingShots([t], [img(t.id, 'entry')]).map((s) => s.kind)).toEqual(['exit'])
-    expect(missingShots([t], [img(t.id, 'entry'), img(t.id, 'exit')])).toEqual([])
+    expect(kinds([t], [auto(t, 'entry'), auto(t, 'exit')])).toEqual([])
+  })
+
+  test('改了止損：進場圖與出場圖都重畫', () => {
+    const t = mk()
+    const images = [auto(t, 'entry'), auto(t, 'exit')]
+    expect(kinds([{ ...t, planned_stop: 96 }], images)).toEqual(['entry', 'exit'])
+  })
+
+  test('只改出場價相關欄位：只重畫出場圖', () => {
+    const t = mk()
+    const images = [auto(t, 'entry'), auto(t, 'exit')]
+    expect(kinds([{ ...t, final_stop: 101 }], images)).toEqual(['exit'])
+  })
+
+  test('改復盤文字不重畫', () => {
+    const t = mk()
+    expect(kinds([{ ...t, note: '復盤', emotion: 3 }], [auto(t, 'entry'), auto(t, 'exit')])).toEqual([])
+  })
+
+  test('舊版沒有指紋的自動圖要重畫', () => {
+    const t = mk()
+    const old = (kind: 'entry' | 'exit') => ({ trade_id: t.id, kind, path: `u1/${t.id}/${kind}-auto-1759000000000.jpg` })
+    expect(kinds([t], [old('entry'), old('exit')])).toEqual(['entry', 'exit'])
   })
 
   test('持倉中只補進場圖', () => {
-    const t = mk({ closed_at: null, exit_price: null, exit_reason: null })
-    expect(missingShots([t], []).map((s) => s.kind)).toEqual(['entry'])
+    expect(kinds([mk({ closed_at: null, exit_price: null, exit_reason: null })], [])).toEqual(['entry'])
   })
 
   test('止損未知、作戰卡、放棄的卡都不補', () => {
     const stopless: RawTrade = { ...mk(), planned_stop: null }
     const card = mk({ opened_at: null, closed_at: null })
     const abandoned = mk({ abandoned_at: '2026-10-06T03:00:00Z' })
-    expect(missingShots([stopless, card, abandoned], [])).toEqual([])
+    expect(kinds([stopless, card, abandoned], [])).toEqual([])
+  })
+
+  test('回傳畫圖用的週期與指紋', () => {
+    const t = mk()
+    const [s] = shotsToDraw([t], [], NOW)
+    expect(s.interval).toBe('5m')
+    expect(s.key).toBe(shotKey(t, 'entry', '5m'))
+    expect(s.key).toMatch(/^[0-9a-f]{8}$/)
   })
 })
 

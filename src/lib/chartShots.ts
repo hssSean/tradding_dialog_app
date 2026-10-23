@@ -34,19 +34,58 @@ export function chartRange(t: RawTrade, mode: ChartMode, interval: Interval, now
 }
 
 /**
- * 還缺哪些自動截圖：已進場、沒放棄、止損已知，而且那一格還空著（絕不覆蓋已有的圖）。
- * 出場圖只給已平倉的交易。
+ * 自動圖的指紋：畫圖會用到的欄位（含週期）。資料變了指紋就變，自動圖要重畫。
+ * 進場圖不含出場資訊，所以只改出場的東西不會重畫進場圖。
  */
-export function missingShots(trades: RawTrade[], images: { trade_id: string; kind: ImageKind }[]): { trade: Trade; kind: ImageKind }[] {
-  const has = new Set(images.map((i) => `${i.trade_id}:${i.kind}`))
-  const out: { trade: Trade; kind: ImageKind }[] = []
+export function shotKey(t: RawTrade, kind: ImageKind, interval: Interval): string {
+  const base = [t.symbol, t.direction, t.opened_at, t.entry_price, t.planned_stop, t.planned_target, interval]
+  const exit = kind === 'exit' ? [t.closed_at, t.final_stop, t.stop_edits.map((e) => [e.at, e.to])] : []
+  return fnv1a(JSON.stringify([...base, ...exit]))
+}
+
+/** 從檔名 `{kind}-auto-{指紋}-{時間}.jpg` 取出指紋；不是自動圖回傳 undefined，舊版沒指紋的自動圖回傳 null */
+export function autoKeyOf(path: string): string | null | undefined {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+  if (!name.includes('-auto-')) return undefined
+  return /-auto-([0-9a-f]{8})-\d+\.jpg$/.exec(name)?.[1] ?? null
+}
+
+export interface ShotJob {
+  trade: Trade
+  kind: ImageKind
+  interval: Interval
+  key: string
+}
+
+/**
+ * 要畫哪些自動截圖：已進場、沒放棄、止損已知，而且那一格是空的，或是指紋過期的自動圖。
+ * 使用者上傳的圖絕不覆蓋。出場圖只給已平倉的交易。
+ */
+export function shotsToDraw(trades: RawTrade[], images: { trade_id: string; kind: ImageKind; path: string }[], now: number): ShotJob[] {
+  const byslot = new Map(images.map((i) => [`${i.trade_id}:${i.kind}`, i.path]))
+  const out: ShotJob[] = []
   for (const t of trades) {
     if (!t.opened_at || t.abandoned_at || t.planned_stop === null) continue
     const trade = t as Trade
-    if (!has.has(`${t.id}:entry`)) out.push({ trade, kind: 'entry' })
-    if (t.closed_at && !has.has(`${t.id}:exit`)) out.push({ trade, kind: 'exit' })
+    const interval = intervalFor(t, now)
+    const kinds: ImageKind[] = t.closed_at ? ['entry', 'exit'] : ['entry']
+    for (const kind of kinds) {
+      const key = shotKey(t, kind, interval)
+      const path = byslot.get(`${t.id}:${kind}`)
+      if (path === undefined || (autoKeyOf(path) !== undefined && autoKeyOf(path) !== key)) out.push({ trade, kind, interval, key })
+    }
   }
   return out
+}
+
+/** 32 位元 FNV-1a，8 位十六進位 */
+function fnv1a(s: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(16).padStart(8, '0')
 }
 
 /** 截圖上方的標題，例：ICPUSDT 做多 · 進場 · 15 分 · 10/12 21:30（台北時間） */
