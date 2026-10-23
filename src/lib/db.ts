@@ -298,11 +298,15 @@ export async function listImages(tradeId: string): Promise<TradeImage[]> {
   return must(await supabase.from('journal_trade_images').select('*').eq('trade_id', tradeId).returns<TradeImage[]>())
 }
 
-/** 每次上傳用新檔名，避免簽名網址拿到 CDN 快取的舊圖；舊檔在新檔寫入後刪除 */
-export async function uploadImage(tradeId: string, kind: ImageKind, blob: Blob): Promise<void> {
+/**
+ * 每次上傳用新檔名，避免簽名網址拿到 CDN 快取的舊圖；舊檔在新檔寫入後刪除。
+ * auto：K 線自動截圖，檔名帶 `-auto-`；那一格已經有圖就不寫，絕不覆蓋。
+ */
+export async function uploadImage(tradeId: string, kind: ImageKind, blob: Blob, opts: { auto?: boolean } = {}): Promise<void> {
   const uid = await userId()
-  const path = `${uid}/${tradeId}/${kind}-${Date.now()}.jpg`
+  const path = `${uid}/${tradeId}/${kind}-${opts.auto ? 'auto-' : ''}${Date.now()}.jpg`
   const old = (await listImages(tradeId)).find((i) => i.kind === kind)
+  if (old && opts.auto) return
   check(await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg' }))
   check(
     await supabase

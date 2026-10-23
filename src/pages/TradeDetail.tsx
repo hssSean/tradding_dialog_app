@@ -23,6 +23,7 @@ import type { Emotion, ImageKind, RawTrade, Setup, Trade, TradeImage } from '../
 import { dayKey } from '../game/evaluate'
 import { useAsync } from '../lib/useAsync'
 import { useJournal } from '../lib/useJournal'
+import { useSync } from '../lib/sync'
 
 // 圖表套件約 160 KB，只在打開詳情頁時載入
 const LazyChart = lazy(() => import('../components/TradeChart'))
@@ -542,10 +543,12 @@ function ReviewCard({ t, onDone }: { t: Trade; onDone: () => void }) {
 
 /** 截圖與標註 */
 function ImagesCard({ t }: { t: Trade }) {
+  // 背景補完 K 線截圖後 version 會變，重新載入
+  const { version } = useSync()
   const images = useAsync(async () => {
     const list = await listImages(t.id)
     return Promise.all(list.map(async (img) => ({ ...img, url: await imageUrl(img.path) })))
-  }, [t.id])
+  }, [t.id, version])
   return (
     <Card title="截圖">
       {images.error ? (
@@ -609,10 +612,27 @@ function ImageSlot({
     }
   }
 
+  // 自動產生的 K 線截圖可以換成自己的截圖
+  const auto = img?.path.includes('-auto-') ?? false
+  const picker = (pickerLabel: string) => (
+    <>
+      <ImagePicker label={pickerLabel} value={blob} onChange={setBlob} />
+      {blob && (
+        <Button className="w-full" onClick={upload} disabled={busy}>
+          {busy ? '上傳中…' : '上傳截圖'}
+        </Button>
+      )}
+      {error && <p className="text-sm text-ochre">{error}</p>}
+    </>
+  )
+
   if (img)
     return (
       <div className="space-y-2">
-        <span className="block text-sm text-paper-dim">{label}</span>
+        <span className="block text-sm text-paper-dim">
+          {label}
+          {auto && <span className="ml-2 text-xs">自動產生（K 線）</span>}
+        </span>
         <button type="button" className="block w-full" onClick={() => setFull(true)}>
           <img src={img.url} alt={`${label}截圖`} className="max-h-72 w-full rounded-lg bg-ink object-contain" />
         </button>
@@ -624,6 +644,7 @@ function ImageSlot({
           placeholder="標註：結構、進場依據、哪裡看錯了（有寫才算標註）"
         />
         {captionStatus && <p className="text-xs text-paper-dim">{captionStatus}</p>}
+        {auto && picker('換成自己的截圖')}
         {full && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink" onClick={() => setFull(false)}>
             <img src={img.url} alt={`${label}截圖`} className="max-h-full max-w-full object-contain" />
@@ -632,15 +653,5 @@ function ImageSlot({
       </div>
     )
 
-  return (
-    <div className="space-y-2">
-      <ImagePicker label={`${label}（未上傳）`} value={blob} onChange={setBlob} />
-      {blob && (
-        <Button className="w-full" onClick={upload} disabled={busy}>
-          {busy ? '上傳中…' : '上傳截圖'}
-        </Button>
-      )}
-      {error && <p className="text-sm text-ochre">{error}</p>}
-    </div>
-  )
+  return <div className="space-y-2">{picker(`${label}（未上傳）`)}</div>
 }

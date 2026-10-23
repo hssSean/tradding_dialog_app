@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { generateMissingShots } from './autoShots'
 import { getSettings, syncBingx, type SyncResult } from './db'
 
 /** 距離上次同步超過這麼久，開 App 時就自動同步 */
@@ -41,6 +42,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setResult(r)
         if (r.failed.length) setError(`${r.failed.length} 個幣種同步失敗：${r.failed.map((f) => `${f.symbol}（${f.error}）`).join('、')}`)
         setVersion((v) => v + 1)
+        // 同步完替缺圖的交易補 K 線截圖，不擋同步結果
+        generateMissingShots()
+          .then((n) => n > 0 && setVersion((v) => v + 1))
+          .catch((e: unknown) => console.warn('自動截圖失敗', e))
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => {

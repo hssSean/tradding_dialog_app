@@ -28,7 +28,7 @@
 
 進場圖不能露出進場後的走勢，讓使用者復盤時能先問自己「只看這張會不會進」。
 
-圖片上方加一行標題，例如 `ICPUSDT 做多 · 15 分 · 10/12 21:30`（台北時間，進場圖寫進場時間，出場圖寫出場時間）。輸出 JPEG，品質 0.8，最長邊不超過 2000px（跟 `image.ts` 相同）。
+圖片上方加一行標題，例如 `ICPUSDT 做多 · 進場 · 15 分 · 10/12 21:30`（台北時間，進場圖寫進場時間，出場圖寫出場時間）。輸出 JPEG，品質 0.8，最長邊不超過 2000px（跟 `image.ts` 相同）。
 
 ## 4. 架構
 
@@ -36,8 +36,8 @@
 
 | 單元 | 職責 |
 |---|---|
-| `src/lib/chartShots.ts`（純函數） | `missingShots(trades, images)`：列出要補的 `{ tradeId, kind }`；`shotRange(trade, kind, interval)`：回傳 K 線起訖時間；`shotTitle(trade, kind, interval)` |
-| `src/components/chartDraw.ts` | 從 `TradeChart.tsx` 抽出的共用畫圖：建立圖表選項、蠟燭圖 series、價格線、標記。用 `mode: 'entry' \| 'full'` 決定畫哪些。詳情頁與截圖共用，規則只留一份 |
+| `src/lib/chartShots.ts`（純函數） | `missingShots(trades, images)`：列出要補的 `{ trade, kind }`；`chartRange(trade, mode, interval, now)`：回傳 K 線起訖時間（詳情頁也用）；`shotTitle(trade, kind, interval)` |
+| `src/components/chartDraw.ts` | 從 `TradeChart.tsx` 抽出的共用畫圖：建立圖表、價格線、標記。用 `mode: 'entry' \| 'full'` 決定畫哪些。詳情頁與截圖共用，規則只留一份。同檔 `renderShot`：畫面外圖表 → `takeScreenshot()` → 加標題 → JPEG |
 | `src/lib/autoShots.ts` | `generateMissingShots()`：讀交易與截圖資訊，逐筆抓 K 線、畫圖、上傳。單筆失敗就跳過、記到 console，不擋其他筆 |
 | `src/lib/sync.tsx` | 同步成功後呼叫 `generateMissingShots()`（失敗不影響同步結果），完成後 `version + 1` 讓頁面重新載入 |
 | `src/lib/db.ts` | `uploadImage` 加 `auto` 參數，自動圖檔名為 `{kind}-auto-{時間}.jpg` |
