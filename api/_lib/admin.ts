@@ -8,7 +8,8 @@ import { json } from './auth.js'
 
 export function cronAuthorized(req: Request): boolean {
   const secret = process.env.NOTIFY_CRON_SECRET
-  const got = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? ''
+  // header 優先；?key= 給不能自訂 header 的 cron 服務（UptimeRobot 免費版）
+  const got = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? new URL(req.url).searchParams.get('key') ?? ''
   if (!secret || got.length !== secret.length) return false
   return crypto.timingSafeEqual(Buffer.from(got), Buffer.from(secret))
 }

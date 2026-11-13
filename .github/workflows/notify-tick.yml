@@ -1,0 +1,16 @@
+# 推播排程：每 5 分鐘打 /api/notify/tick。GitHub 的 schedule 常延遲 5～20 分鐘，
+# 要更準時可另加 UptimeRobot 打 /api/notify/tick?key=<NOTIFY_CRON_SECRET>（重複打無害，推播紀錄會去重）。
+name: notify-tick
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: |
+          code=$(curl -s -o out.json -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.NOTIFY_CRON_SECRET }}" https://tradding-dialog-app.vercel.app/api/notify/tick)
+          cat out.json; echo; echo "HTTP $code"
+          [ "$code" = 200 ]
