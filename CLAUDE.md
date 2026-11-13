@@ -37,7 +37,13 @@ v2（2026-10-04）加上夜墨山水首頁與遊戲化：作戰卡、評分評�
   - `allOrders` 一次最多查 7 天
   - **在 BingX 改倉位止損不留紀錄**，只拿得到最後止損 → 使用者填的初始止損優先，BingX 止損只當最後止損
   - 手續費為 0 的倉位沒有收益流水，找幣種要併上日誌記過的幣種
-- **同步只允許 `JOURNAL_OWNER_USER_ID`**：Supabase 公開註冊開著，不限定 owner 別人能把擁有者的成交寫進自己帳號。寫入一律用使用者 JWT，不用 service role。
+- **同步只允許 `JOURNAL_OWNER_USER_ID`**：Supabase 公開註冊開著，不限定 owner 別人能把擁有者的成交寫進自己帳號。**交易寫入一律用使用者 JWT**。service role 只有 `/api/notify/tick` 用（`api/_lib/admin.ts`）：只寫 `journal_push_subscriptions`／`journal_push_log`，只讀 `journal_trades`（待標記計數、已標過的不重推），且一律 `eq('user_id', owner)`。
+- **推播快速標記（2026-11-13）**：規格 `docs/superpowers/specs/2026-11-13-push-quick-tag-design.md`、計畫 `docs/superpowers/plans/2026-11-13-push-quick-tag.md`。外部 cron 每 5 分鐘 `GET /api/notify/tick`（header `Authorization: Bearer $NOTIFY_CRON_SECRET`，`?dryRun=1` 只回傳不送）→ BingX 新開倉／2 小時內平倉／台北 22 點待標記 → web-push。點推播開 `/tag/open|close/:positionId`，收件匣 `/inbox`，共用 `QuickTagCard`；純函數 `src/notify/events.ts`、`src/lib/quickTag.ts`。
+  - **同步只匯入已平倉倉位**，所以開倉卡按完成時直接建一筆 `external_id = positionId`、`planned_stop = null` 的紀錄，平倉後 sync 以 external_id 合併（`mergePatch` 不碰 setup／理由／標籤／card_at）。
+  - `/user/positions` 的欄位 2026-11-13 **沒實測到**（當時沒持倉）：開倉時間取 `createTime ?? openTime ?? updateTime ?? 偵測時間`。第一次有持倉時用 `/api/bingx/open` 看實際回應並記下來。
+  - `src/notify/events.ts`、`src/lib/quickTag.ts` 被 Vercel 函數 import，**只能有 type import**（函數不打包，相對 import 執行期會失敗）。`web-push` 4 沒有 default export，要具名匯入。
+  - 排程最後執行時間存在 `journal_push_log` 的 `event_key='tick'`；首頁超過 1 小時沒跑會顯示灰字。
+  - iOS 只有從主畫面開的 PWA 能訂閱推播；service worker 由 workbox `importScripts('push-sw.js')` 載入（`public/push-sw.js`）。
 - **對帳**：手動記的時間常差很多，用「30 分鐘內」或「同一天且進場價差 0.3% 內」，整批價差最小的先配（`assignMatches`），不要逐筆依時間配。
 - **作戰卡**：進場當天（台北 24:00 前）補完就算有（2026-10-12 使用者決定）。
 - **不用 `alert()`／`confirm()`／`prompt()`**（SPEC §8），二次確認一律做成頁面內區塊。
@@ -70,7 +76,7 @@ node scripts/sb-query.mjs migration.sql     # 執行 SQL 檔
 
 部署：push 到 `main` 由 Vercel（專案 `tradding-dialog-app`，https://tradding-dialog-app.vercel.app）自動部署。
 ⚠ 2026-10-12 push 後 GitHub 沒有觸發部署（Vercel 上連失敗紀錄都沒有），改用 `npx vercel deploy --prod --yes` 部署。push 後務必確認線上 bundle 的版本號（登入頁最下面）有更新。
-Vercel 伺服器端環境變數：`BINGX_API_KEY`、`BINGX_SECRET_KEY`（唯讀 key）、`JOURNAL_OWNER_USER_ID`，加上 `VITE_SUPABASE_*`。設定後要逐一確認（2026-10-04、10-12 都有一個值沒寫進去）。
+Vercel 伺服器端環境變數：`BINGX_API_KEY`、`BINGX_SECRET_KEY`（唯讀 key）、`JOURNAL_OWNER_USER_ID`，加上 `VITE_SUPABASE_*`；推播另需 `SUPABASE_SERVICE_ROLE_KEY`、`NOTIFY_CRON_SECRET`、`VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY`、`VAPID_SUBJECT`、`VITE_VAPID_PUBLIC_KEY`（2026-11-13 產生，不與 tradding_app 共用）。設定後要逐一確認（2026-10-04、10-12 都有一個值沒寫進去）。
 資料庫：`supabase/schema.sql` 已於 2026-10-05 套用。之後改 schema 要另寫 migration 並用 `sb-query.mjs` 執行，同時更新 `schema.sql`。
 
 ## 關鍵檔案
