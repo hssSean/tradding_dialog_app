@@ -1,6 +1,6 @@
 // POST /api/notify/test — 訂閱後送一則測試推播。用使用者 JWT 讀自己的訂閱（RLS），不用 service role。
 import { json, requireOwner } from '../_lib/auth.js'
-import { sendAll, type Sub } from '../_lib/push.js'
+import { sendAll, vapidDiagnosis, type Sub } from '../_lib/push.js'
 
 export async function POST(req: Request): Promise<Response> {
   const auth = await requireOwner(req)
@@ -12,7 +12,9 @@ export async function POST(req: Request): Promise<Response> {
   try {
     const r = await sendAll(subs, { title: '推播已開啟', body: '開倉、平倉後會在這裡提醒你標記', url: '/', tag: 'test' })
     if (r.gone.length) await auth.supa.from('journal_push_subscriptions').delete().in('id', r.gone)
-    return r.ok ? json({ ok: true }) : json({ error: r.errors[0] ?? '訂閱已失效，請重新開啟' }, 502)
+    if (r.ok) return json({ ok: true })
+    const d = vapidDiagnosis()
+    return json({ error: `${r.errors[0] ?? '訂閱已失效，請重新開啟'}｜診斷 ${Object.entries(d).map(([k, v]) => `${k}=${v}`).join(' ')}` }, 502)
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500)
   }

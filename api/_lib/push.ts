@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 // Web Push 送出。訂閱失效（404／410）回報給呼叫端刪除。
 import { sendNotification, setVapidDetails } from 'web-push'
 
@@ -38,8 +39,31 @@ export async function sendAll(subs: Sub[], payload: Payload): Promise<{ ok: bool
     } catch (e) {
       const code = (e as { statusCode?: number }).statusCode
       if (code === 404 || code === 410) gone.push(s.id)
-      else errors.push(`${code ?? ''} ${e instanceof Error ? e.message : String(e)}`.trim())
+      // 推播服務的回應內容（Apple 會寫原因，例如 {"reason":"BadJwtToken"}）
+      else errors.push(`${code ?? ''} ${(e as { body?: string }).body || (e instanceof Error ? e.message : String(e))}`.trim())
     }
   }
   return { ok, gone, errors }
+}
+
+/** 診斷用：VAPID 設定是否一致（只回傳是否相符，不回傳金鑰） */
+export function vapidDiagnosis(): Record<string, string | boolean> {
+  const pub = process.env.VAPID_PUBLIC_KEY ?? ''
+  const priv = process.env.VAPID_PRIVATE_KEY ?? ''
+  const vite = process.env.VITE_VAPID_PUBLIC_KEY ?? ''
+  let derived = ''
+  try {
+    const ecdh = crypto.createECDH('prime256v1')
+    ecdh.setPrivateKey(Buffer.from(priv, 'base64url'))
+    derived = ecdh.getPublicKey().toString('base64url')
+  } catch {
+    derived = 'invalid'
+  }
+  const subject = process.env.VAPID_SUBJECT ?? ''
+  return {
+    privMatchesPub: derived === pub,
+    pubMatchesVite: pub === vite,
+    pubLen: String(pub.length),
+    subject: subject.startsWith('mailto:') ? 'mailto' : subject.startsWith('https://') ? 'https' : subject ? 'other' : 'unset',
+  }
 }

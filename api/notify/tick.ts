@@ -10,7 +10,7 @@ import type { BxPosition } from '../../src/sync/bingx.js'
 import { adminClient, cronAuthorized } from '../_lib/admin.js'
 import { json } from '../_lib/auth.js'
 import { bingxSigned } from '../_lib/bingx.js'
-import { sendAll, type Sub } from '../_lib/push.js'
+import { sendAll, vapidDiagnosis, type Sub } from '../_lib/push.js'
 
 const DAY = 86_400_000
 const HOUR = 3_600_000
@@ -35,6 +35,12 @@ async function handle(req: Request): Promise<Response> {
     if (logRes.error) throw new Error(logRes.error.message)
     const subs = (subsRes.data ?? []) as Sub[]
     const sent = new Set((logRes.data ?? []).map((r: { event_key: string }) => r.event_key))
+
+    // ?test=1：送一則測試推播並回傳結果與 VAPID 診斷（只回是否相符，不回金鑰）
+    if (new URL(req.url).searchParams.get('test') === '1') {
+      const r = await sendAll(subs, { title: '測試推播', body: '排程端送出', url: '/', tag: 'test' })
+      return json({ subs: subs.length, ...r, vapid: vapidDiagnosis() })
+    }
 
     if (!subs.length && !dryRun) {
       await markTick(supa, ownerId, now)
