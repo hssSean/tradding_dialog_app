@@ -7,6 +7,9 @@ import { fmtR } from '../lib/format'
 import { CLASS_DESCRIPTIONS, DEBUFF_NAMES, DEX_REVEAL_N } from '../game/rules'
 import { tpe } from '../lib/tz'
 import { useJournal } from '../lib/useJournal'
+import { fetchOpenPositions, lastTickAt } from '../lib/db'
+import { needsTag, untaggedOpen } from '../lib/quickTag'
+import { useAsync } from '../lib/useAsync'
 
 const WEEKDAYS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六']
 
@@ -20,6 +23,9 @@ export default function Home() {
   const { data, error, reload } = useJournal()
   const navigate = useNavigate()
   const now = useNow()
+  // 持倉與排程狀態讀不到不影響首頁
+  const openPos = useAsync(() => fetchOpenPositions().catch(() => []), [])
+  const tick = useAsync(() => lastTickAt().catch(() => null), [])
 
   if (error) return <div className="px-[18px] pt-[calc(env(safe-area-inset-top)+2rem)]"><LoadError error={error} onRetry={reload} /></div>
   if (!data) return <div className="pt-[calc(env(safe-area-inset-top)+2rem)]"><Loading /></div>
@@ -51,6 +57,24 @@ export default function Home() {
       />
 
       <main className="page">
+
+        {(() => {
+          const n = data.raw.filter((x) => needsTag(x, now.getTime())).length + untaggedOpen(openPos.data ?? [], data.raw).length
+          return n > 0 ? (
+            <section className="sec">
+              <Link to="/inbox" className="flex items-center justify-between">
+                <span>
+                  <span className="font-brush text-xl text-moon">待標記 {n} 筆</span>
+                  <span className="ml-2 text-xs text-paper-dim">每筆點兩下</span>
+                </span>
+                <span className="text-moon">→</span>
+              </Link>
+            </section>
+          ) : null
+        })()}
+        {tick.data && now.getTime() - Date.parse(tick.data) > 3_600_000 && (
+          <p className="sec text-xs text-paper-dim/70">推播排程超過 1 小時沒跑（最後 {new Date(tick.data).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}）</p>
+        )}
 
         {data.pending.length > 0 && (
           <section className="sec">

@@ -11,8 +11,10 @@ import CloseTrade from './pages/CloseTrade'
 import Dex from './pages/Dex'
 import EditTrade from './pages/EditTrade'
 import Home from './pages/Home'
+import Inbox from './pages/Inbox'
 import NewTrade from './pages/NewTrade'
 import Notes from './pages/Notes'
+import Tag from './pages/Tag'
 import TradeDetail from './pages/TradeDetail'
 import TradeList from './pages/TradeList'
 import WeeklyReview from './pages/WeeklyReview'
@@ -34,6 +36,8 @@ createRoot(document.getElementById('root')!).render(
             <Route path="trade/:id/close" element={<CloseTrade />} />
             <Route path="trade/:id/edit" element={<EditTrade />} />
             <Route path="notes" element={<Notes />} />
+            <Route path="inbox" element={<Inbox />} />
+            <Route path="tag/:kind/:pid" element={<Tag />} />
             <Route path="review" element={<WeeklyReview />} />
             <Route path="review/:week" element={<WeeklyReview />} />
             {/* v1 的舊網址 */}

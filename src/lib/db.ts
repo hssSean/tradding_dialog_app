@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
+import type { BxOpenPosition } from '../notify/events'
 import { fillStopPatch } from '../sync/bingx'
+import { closeTagPatch, openTagPatch, type CloseTagInput, type OpenTagInput } from './quickTag'
 import { autoKeyOf } from './chartShots'
 import { currentStop, normalizeSymbol } from './trade'
-import type { DailyNote, Emotion, EntryInput, ExitInput, ImageKind, RawTrade, Settings, Setup, Trade, TradeImage, WeeklyReview } from './types'
+import type { DailyNote, Direction, Emotion, EntryInput, ExitInput, ImageKind, RawTrade, Settings, Setup, Trade, TradeImage, WeeklyReview } from './types'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -348,4 +350,69 @@ export async function saveWeeklyReview(weekStart: string, note: string, nextWeek
       .from('journal_weekly_reviews')
       .upsert({ week_start: weekStart, note, next_week_focus: nextWeekFocus }, { onConflict: 'user_id,week_start' }),
   )
+}
+
+// ── 快速標記與推播（2026-11-13）──────────────────────────
+
+/**
+ * 開倉卡：BingX 持倉還沒有日誌紀錄（同步只匯入已平倉）→ 直接建一筆 external_id = positionId 的紀錄，
+ * 平倉後同步以 external_id 找到它、只更新成交欄位（mergePatch 不碰 setup／理由／標籤／card_at）。
+ * 已經有紀錄（例如重複點推播）就改成更新。
+ */
+export async function tagOpenPosition(
+  p: { positionId: string; symbol: string; direction: Direction; entry: number; openedAt: number },
+  input: OpenTagInput,
+): Promise<void> {
+  const now = nowIso()
+  const existing = maybe(await supabase.from('journal_trades').select('*').eq('external_id', p.positionId).maybeSingle<RawTrade>())
+  if (existing) {
+    check(await supabase.from('journal_trades').update(openTagPatch(input, existing.mistake_tags, now, existing.card_at)).eq('id', existing.id))
+    return
+  }
+  check(
+    await supabase.from('journal_trades').insert({
+      symbol: normalizeSymbol(p.symbol),
+      direction: p.direction,
+      opened_at: new Date(p.openedAt).toISOString(),
+      entry_price: p.entry,
+      planned_stop: null,
+      source: 'bingx',
+      external_id: p.positionId,
+      gamified: true,
+      ...openTagPatch(input, [], now, null),
+    }),
+  )
+}
+
+/** 平倉卡／收件匣：已在日誌裡的交易。open 不是 null 代表開倉那幾列也一起補 */
+export async function tagTrade(t: RawTrade, close: CloseTagInput | null, open: OpenTagInput | null): Promise<void> {
+  const now = nowIso()
+  const patch = close ? closeTagPatch(t, close, open, now) : open ? openTagPatch(open, t.mistake_tags, now, t.card_at) : null
+  if (patch) check(await supabase.from('journal_trades').update(patch).eq('id', t.id))
+}
+
+export async function fetchOpenPositions(): Promise<BxOpenPosition[]> {
+  return (await api<{ positions: BxOpenPosition[] }>('/api/bingx/open')).positions
+}
+
+export async function savePushSubscription(s: { endpoint: string; p256dh: string; auth: string }): Promise<void> {
+  check(await supabase.from('journal_push_subscriptions').upsert(s, { onConflict: 'endpoint' }))
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  check(await supabase.from('journal_push_subscriptions').delete().eq('endpoint', endpoint))
+}
+
+export async function hasPushSubscription(endpoint: string): Promise<boolean> {
+  return (maybe(await supabase.from('journal_push_subscriptions').select('id').eq('endpoint', endpoint).returns<{ id: string }[]>()) ?? []).length > 0
+}
+
+export async function sendTestPush(): Promise<void> {
+  await api('/api/notify/test', { method: 'POST' })
+}
+
+/** 推播排程最後一次執行的時間（cron 打 /api/notify/tick 時寫入） */
+export async function lastTickAt(): Promise<string | null> {
+  const row = maybe(await supabase.from('journal_push_log').select('sent_at').eq('event_key', 'tick').maybeSingle<{ sent_at: string }>())
+  return row?.sent_at ?? null
 }

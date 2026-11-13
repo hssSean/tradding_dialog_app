@@ -101,7 +101,8 @@ async function syncSymbol(supa: SupabaseClient, bxSymbol: string, start: number,
   for (let page = 0; page < 20; page++) {
     const data = await bingxSigned<{ positionHistory?: BxPosition[] }>('/openApi/swap/v1/trade/positionHistory', {
       symbol,
-      startTs: start,
+      // 往前多抓 30 天：持倉超過一天、中間又同步過的倉位，開倉時間會早於 start（2026-11-13）
+      startTs: Math.max(start - 30 * DAY, now - MAX_LOOKBACK),
       endTs: now,
       pageIndex: page,
       pageSize: 100,
@@ -110,7 +111,8 @@ async function syncSymbol(supa: SupabaseClient, bxSymbol: string, start: number,
     positions.push(...list)
     if (list.length < 100) break
   }
-  const closed = positions.filter((p) => p.closeAllPositions && p.openTime >= start)
+  // 以平倉時間篩：開倉早於 start 的長抱單照樣匯入
+  const closed = positions.filter((p) => p.closeAllPositions && p.updateTime >= start)
   if (!closed.length) return { symbol, created: 0, merged: 0, updated: 0, pendingStop: 0, actions: [] }
 
   // 只查有倉位的時間段的訂單，每段最多 7 天

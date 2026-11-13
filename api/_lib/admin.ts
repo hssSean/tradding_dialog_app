@@ -1,4 +1,5 @@
 // service role：只給 /api/notify/tick 用（cron 執行時沒有使用者 JWT）。
+// 讀 journal_trades 只用在：待標記計數、已標過的倉位不重推。
 // 規則：只寫 journal_push_subscriptions／journal_push_log，只「讀」journal_trades 計數，且一律限 JOURNAL_OWNER_USER_ID。
 // 交易寫入一律走使用者 JWT（api/_lib/auth.ts），不要在這裡加。
 import crypto from 'node:crypto'

@@ -44,7 +44,10 @@ async function handle(req: Request): Promise<Response> {
     const positions = ((await bingxSigned<BxOpenPosition[]>('/openApi/swap/v2/user/positions', {})) ?? []).filter((p) => Number(p.positionAmt ?? 1) !== 0)
     const history = await recentClosed(now)
 
-    const events: PushEvent[] = [...openEvents(positions, sent, now), ...closeEvents(history, sent, now)]
+    // 已經在 App 裡標過的（先開 App、或從收件匣標的）就不推
+    const done = await taggedKeys(supa, ownerId, [...positions.map((p) => p.positionId), ...history.map((p) => p.positionId)])
+    const skip = new Set([...sent, ...done])
+    const events: PushEvent[] = [...openEvents(positions, skip, now), ...closeEvents(history, skip, now)]
     // 每日提醒只在台北 22 點那一小時才需要計數，其他時間省掉查詢
     const tpeHour = new Date(now + 8 * HOUR).getUTCHours()
     if (tpeHour === DAILY_HOUR) {
@@ -125,4 +128,19 @@ async function pendingCount(supa: SupabaseClient, ownerId: string, positions: Bx
     known = r.data ?? []
   }
   return rows.filter((t) => needsTag(t, now)).length + untaggedOpen(positions, known).length
+}
+
+/** 日誌裡已標過的倉位 → 視同已推：有作戰卡的不推開倉，已檢討的不推平倉 */
+async function taggedKeys(supa: SupabaseClient, ownerId: string, ids: string[]): Promise<string[]> {
+  if (!ids.length) return []
+  const { data, error } = await supa
+    .from('journal_trades')
+    .select('external_id, card_at, reviewed_at')
+    .eq('user_id', ownerId)
+    .in('external_id', [...new Set(ids)])
+  if (error) throw new Error(error.message)
+  return (data ?? []).flatMap((r: { external_id: string; card_at: string | null; reviewed_at: string | null }) => [
+    ...(r.card_at ? [`open:${r.external_id}`] : []),
+    ...(r.reviewed_at ? [`close:${r.external_id}`] : []),
+  ])
 }

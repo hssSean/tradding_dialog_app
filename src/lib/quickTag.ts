@@ -64,3 +64,58 @@ export function untaggedOpen(positions: BxOpenPosition[], trades: Pick<RawTrade,
   const known = new Set(trades.map((t) => t.external_id).filter(Boolean))
   return positions.filter((p) => !known.has(p.positionId))
 }
+
+export interface OpenPos {
+  positionId: string
+  symbol: string
+  direction: RawTrade['direction']
+  entry: number
+  openedAt: number
+}
+
+/** 還沒有日誌紀錄的持倉 → 給卡片與 K 線圖用的暫時交易物件（不寫入資料庫） */
+export function openPositionTrade(p: OpenPos): RawTrade {
+  const opened = new Date(p.openedAt).toISOString()
+  return {
+    id: `open:${p.positionId}`,
+    user_id: '',
+    symbol: p.symbol,
+    direction: p.direction,
+    setup_id: null,
+    timeframe: null,
+    opened_at: opened,
+    entry_price: p.entry,
+    planned_stop: null,
+    planned_target: null,
+    risk_usdt: null,
+    entry_reason: null,
+    closed_at: null,
+    exit_price: null,
+    final_stop: null,
+    exit_reason: null,
+    pnl_usdt: null,
+    mistake_tags: [],
+    note: null,
+    card_at: null,
+    emotion: null,
+    equity_at_entry: null,
+    stop_edits: [],
+    reviewed_at: null,
+    abandoned_at: null,
+    gamified: true,
+    source: 'bingx',
+    external_id: p.positionId,
+    created_at: opened,
+    updated_at: opened,
+  }
+}
+
+/** 推播網址的參數 → 持倉；缺參數或格式不對回傳 null */
+export function openPosFromQuery(positionId: string, q: URLSearchParams): OpenPos | null {
+  const symbol = q.get('s')
+  const d = q.get('d')
+  const entry = Number(q.get('p'))
+  const openedAt = Number(q.get('t'))
+  if (!symbol || (d !== 'long' && d !== 'short') || !(entry > 0) || !(openedAt > 0)) return null
+  return { positionId, symbol, direction: d, entry, openedAt }
+}

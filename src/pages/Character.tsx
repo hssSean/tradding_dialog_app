@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, Errors, LoadError, Loading } from '../components/ui'
 import Radar from '../components/home/Radar'
+import PushSettings from '../components/PushSettings'
 import { ACHIEVEMENTS, CLASS_DESCRIPTIONS, VIOLATION_LABELS } from '../game/rules'
 import { buildInfo, signOut, storageUsageBytes, updateSettings } from '../lib/db'
 import { fmtDateTime, fmtR } from '../lib/format'
@@ -169,6 +170,7 @@ function CharacterPage({ journal, reload }: { journal: Journal; reload: () => vo
         <p className="text-sm text-paper-dim">
           BingX：{journal.settings.bingx_synced_at ? `已連線 · 最後同步 ${fmtDateTime(journal.settings.bingx_synced_at)}` : '尚未同步'}
         </p>
+        <PushSettings />
         <Button variant="secondary" className="w-full" onClick={() => void signOut()}>
           登出
         </Button>

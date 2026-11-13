@@ -20,6 +20,8 @@ export default defineConfig({
       manifest: false,
       includeAssets: ['icons/*.png', 'icons/*.svg', 'manifest.webmanifest'],
       workbox: {
+        // 推播與點擊處理（public/push-sw.js）
+        importScripts: ['push-sw.js'],
         // Google Fonts 走執行期快取，離線時楷書仍可用
         runtimeCaching: [
           {

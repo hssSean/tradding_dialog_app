@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closeTagPatch, INBOX_DAYS, needsTag, openTagPatch, untaggedOpen } from '../src/lib/quickTag'
+import { closeTagPatch, INBOX_DAYS, needsTag, openPositionTrade, openPosFromQuery, openTagPatch, untaggedOpen } from '../src/lib/quickTag'
 import type { BxOpenPosition } from '../src/notify/events'
 import { mk } from './helpers'
 
@@ -77,5 +77,18 @@ describe('untaggedOpen', () => {
   it('日誌裡已有同 external_id 的不算', () => {
     const p = (id: string): BxOpenPosition => ({ positionId: id, symbol: 'SOL-USDT', positionSide: 'LONG', avgPrice: '1' })
     expect(untaggedOpen([p('a'), p('b')], [mk({ external_id: 'a' })]).map((x) => x.positionId)).toEqual(['b'])
+  })
+})
+
+describe('openPosFromQuery／openPositionTrade', () => {
+  it('推播網址參數 → 暫時交易', () => {
+    const p = openPosFromQuery('123', new URLSearchParams('s=SOLUSDT&d=short&p=150.5&t=1794557985000'))
+    expect(p).toEqual({ positionId: '123', symbol: 'SOLUSDT', direction: 'short', entry: 150.5, openedAt: 1794557985000 })
+    const t = openPositionTrade(p!)
+    expect(t).toMatchObject({ external_id: '123', opened_at: new Date(1794557985000).toISOString(), closed_at: null, card_at: null, source: 'bingx' })
+  })
+  it('缺參數 → null', () => {
+    expect(openPosFromQuery('1', new URLSearchParams('s=SOLUSDT&d=up&p=1&t=1'))).toBeNull()
+    expect(openPosFromQuery('1', new URLSearchParams('s=SOLUSDT&d=long&t=1'))).toBeNull()
   })
 })
