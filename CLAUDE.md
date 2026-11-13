@@ -43,6 +43,7 @@ v2（2026-10-04）加上夜墨山水首頁與遊戲化：作戰卡、評分評�
   - `/user/positions` 的欄位 2026-11-13 **沒實測到**（當時沒持倉）：開倉時間取 `createTime ?? openTime ?? updateTime ?? 偵測時間`。第一次有持倉時用 `/api/bingx/open` 看實際回應並記下來。
   - `src/notify/events.ts`、`src/lib/quickTag.ts` 被 Vercel 函數 import，**只能有 type import**（函數不打包，相對 import 執行期會失敗）。`web-push` 4 沒有 default export，要具名匯入。
   - 排程最後執行時間存在 `journal_push_log` 的 `event_key='tick'`；首頁超過 1 小時沒跑會顯示灰字。
+  - **Apple 推播回 403 `BadJwtToken` = VAPID JWT 不合格**（2026-11-13 實測：subject 是 `mailto:…@example.invalid`）。subject 已寫死在 `api/_lib/push.ts`，Vercel 上的 `VAPID_SUBJECT` 沒在用。診斷：`/api/notify/tick?test=1`（帶 cron 密鑰）送測試推播並回報公私鑰是否一致；`vercel env rm` 要互動確認，CLI 加 `-y` 也會靜默失敗。
   - iOS 只有從主畫面開的 PWA 能訂閱推播；service worker 由 workbox `importScripts('push-sw.js')` 載入（`public/push-sw.js`）。
 - **對帳**：手動記的時間常差很多，用「30 分鐘內」或「同一天且進場價差 0.3% 內」，整批價差最小的先配（`assignMatches`），不要逐筆依時間配。
 - **作戰卡**：進場當天（台北 24:00 前）補完就算有（2026-10-12 使用者決定）。
@@ -76,7 +77,7 @@ node scripts/sb-query.mjs migration.sql     # 執行 SQL 檔
 
 部署：push 到 `main` 由 Vercel（專案 `tradding-dialog-app`，https://tradding-dialog-app.vercel.app）自動部署。
 ⚠ 2026-10-12 push 後 GitHub 沒有觸發部署（Vercel 上連失敗紀錄都沒有），改用 `npx vercel deploy --prod --yes` 部署。push 後務必確認線上 bundle 的版本號（登入頁最下面）有更新。
-Vercel 伺服器端環境變數：`BINGX_API_KEY`、`BINGX_SECRET_KEY`（唯讀 key）、`JOURNAL_OWNER_USER_ID`，加上 `VITE_SUPABASE_*`；推播另需 `SUPABASE_SERVICE_ROLE_KEY`、`NOTIFY_CRON_SECRET`、`VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY`、`VAPID_SUBJECT`、`VITE_VAPID_PUBLIC_KEY`（2026-11-13 產生，不與 tradding_app 共用）。設定後要逐一確認（2026-10-04、10-12 都有一個值沒寫進去）。
+Vercel 伺服器端環境變數：`BINGX_API_KEY`、`BINGX_SECRET_KEY`（唯讀 key）、`JOURNAL_OWNER_USER_ID`，加上 `VITE_SUPABASE_*`；推播另需 `SUPABASE_SERVICE_ROLE_KEY`、`NOTIFY_CRON_SECRET`、`VAPID_PUBLIC_KEY`、`VAPID_PRIVATE_KEY`、`VITE_VAPID_PUBLIC_KEY`（2026-11-13 產生，不與 tradding_app 共用）。設定後要逐一確認（2026-10-04、10-12 都有一個值沒寫進去）。
 資料庫：`supabase/schema.sql` 已於 2026-10-05 套用。之後改 schema 要另寫 migration 並用 `sb-query.mjs` 執行，同時更新 `schema.sql`。
 
 ## 關鍵檔案
