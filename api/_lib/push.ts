@@ -21,7 +21,7 @@ function configure(): void {
   const pub = process.env.VAPID_PUBLIC_KEY
   const priv = process.env.VAPID_PRIVATE_KEY
   if (!pub || !priv) throw new Error('伺服器還沒設定 VAPID_PUBLIC_KEY／VAPID_PRIVATE_KEY')
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:journal@example.invalid', pub, priv)
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'https://tradding-dialog-app.vercel.app', pub, priv)
   configured = true
 }
 
