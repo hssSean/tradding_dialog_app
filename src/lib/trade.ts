@@ -9,6 +9,7 @@ export const TZ = 'Asia/Taipei'
  */
 export const MANUAL_TAG_LABELS: Record<string, string> = {
   early_exit: '提前出場',
+  late_exit: '抱太久',
   chasing: '追價',
   unplanned: '計畫外交易',
 }
