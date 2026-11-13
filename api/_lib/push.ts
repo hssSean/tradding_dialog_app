@@ -16,13 +16,16 @@ export interface Payload {
   tag: string
 }
 
+const VAPID_SUBJECT = 'https://tradding-dialog-app.vercel.app'
+
 let configured = false
 function configure(): void {
   if (configured) return
   const pub = process.env.VAPID_PUBLIC_KEY
   const priv = process.env.VAPID_PRIVATE_KEY
   if (!pub || !priv) throw new Error('伺服器還沒設定 VAPID_PUBLIC_KEY／VAPID_PRIVATE_KEY')
-  setVapidDetails(process.env.VAPID_SUBJECT || 'https://tradding-dialog-app.vercel.app', pub, priv)
+  // subject 寫死：Apple 會驗證格式，mailto:…@example.invalid 會回 403 BadJwtToken（2026-11-13 實測）
+  setVapidDetails(VAPID_SUBJECT, pub, priv)
   configured = true
 }
 
@@ -59,7 +62,7 @@ export function vapidDiagnosis(): Record<string, string | boolean> {
   } catch {
     derived = 'invalid'
   }
-  const subject = process.env.VAPID_SUBJECT ?? ''
+  const subject = VAPID_SUBJECT
   return {
     privMatchesPub: derived === pub,
     pubMatchesVite: pub === vite,
