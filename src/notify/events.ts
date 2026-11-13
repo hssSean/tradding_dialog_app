@@ -2,10 +2,17 @@
  * 推播事件的純函數：BingX 持倉／歷史倉位 → 要推的事件、文案、點擊後的網址。
  * 前端測試與 Vercel 函數（api/notify）共用，不碰網路與資料庫。
  */
-import { toJournalSymbol, type BxPosition } from '../sync/bingx'
-import { DIRECTION_LABELS } from '../lib/trade'
-import { tpe, ymd } from '../lib/tz'
+// ⚠ 只能有 type import：Vercel 函數不打包，執行期的相對 import 會依副檔名解析失敗
+import type { BxPosition } from '../sync/bingx'
 import type { Direction } from '../lib/types'
+
+const toJournalSymbol = (s: string) => s.replace('-', '')
+const DIR = { long: '多', short: '空' } as const
+/** 台北日期與小時（UTC+8，無日光節約；同 src/lib/tz.ts） */
+function tpeParts(ms: number): { date: string; hour: number } {
+  const d = new Date(ms + 8 * 3600_000)
+  return { date: d.toISOString().slice(0, 10), hour: d.getUTCHours() }
+}
 
 /**
  * GET /openApi/swap/v2/user/positions 的一筆。
@@ -82,9 +89,9 @@ export function closeEvents(history: BxPosition[], sent: Set<string>, nowMs: num
 }
 
 export function dailyEvent(pending: number, sent: Set<string>, nowMs: number): PushEvent | null {
-  const t = tpe(new Date(nowMs))
-  const key = `daily:${ymd(t)}`
-  if (t.getUTCHours() !== DAILY_HOUR || pending <= 0 || sent.has(key)) return null
+  const t = tpeParts(nowMs)
+  const key = `daily:${t.date}`
+  if (t.hour !== DAILY_HOUR || pending <= 0 || sent.has(key)) return null
   return { kind: 'daily', key, count: pending }
 }
 
@@ -92,7 +99,7 @@ export function payloadOf(e: PushEvent): { title: string; body: string; url: str
   if (e.kind === 'open') {
     const q = new URLSearchParams({ s: e.symbol, d: e.direction, p: String(e.entry), t: String(e.openedAt) })
     return {
-      title: `${e.symbol} 做${DIRECTION_LABELS[e.direction]} 已開倉`,
+      title: `${e.symbol} 做${DIR[e.direction]} 已開倉`,
       body: '什麼 setup？照計畫嗎？點一下記起來',
       url: `/tag/open/${e.positionId}?${q.toString()}`,
       tag: e.key,
@@ -100,7 +107,7 @@ export function payloadOf(e: PushEvent): { title: string; body: string; url: str
   }
   if (e.kind === 'close') {
     return {
-      title: `${e.symbol} 做${DIRECTION_LABELS[e.direction]} 平倉（${e.win ? '賺' : '賠'}）`,
+      title: `${e.symbol} 做${DIR[e.direction]} 平倉（${e.win ? '賺' : '賠'}）`,
       body: '照計畫出場嗎？',
       url: `/tag/close/${e.positionId}`,
       tag: e.key,
